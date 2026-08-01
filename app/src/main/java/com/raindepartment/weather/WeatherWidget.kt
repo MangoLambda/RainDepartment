@@ -30,12 +30,12 @@ import androidx.glance.text.TextStyle
 
 object WeatherWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val selectedBackplate = BackplateChoices[WeatherPreferences.backplateIndex(context)]
-        val weather = DummyWeatherData.current.forBackplate(selectedBackplate)
-        val unitSystem = WeatherPreferences.unitSystem(context)
-        val backplate = BackplateLoader.imageProvider(context, weather)
-
         provideContent {
+            val selectedBackplate = BackplateChoices[WeatherPreferences.backplateIndex(context)]
+            val weather = DummyWeatherData.current.forBackplate(selectedBackplate)
+            val unitSystem = WeatherPreferences.unitSystem(context)
+            val backplate = BackplateLoader.imageProvider(context, weather)
+
             WeatherWidgetContent(
                 weather = weather,
                 unitSystem = unitSystem,
