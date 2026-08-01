@@ -65,12 +65,15 @@ internal fun RainDepartmentHome() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val weather = DummyWeatherData.current
     var unitSystem by remember { mutableStateOf(WeatherPreferences.unitSystem(context)) }
-    var selectedBackplateIndex by remember { mutableStateOf(4) }
+    var selectedBackplateIndex by remember {
+        mutableStateOf(WeatherPreferences.backplateIndex(context))
+    }
     val selectedBackplate = BackplateChoices[selectedBackplateIndex]
     val previewWeather = weather.forBackplate(selectedBackplate)
 
-    LaunchedEffect(unitSystem) {
+    LaunchedEffect(unitSystem, selectedBackplateIndex) {
         WeatherPreferences.setUnitSystem(context, unitSystem)
+        WeatherPreferences.setBackplateIndex(context, selectedBackplateIndex)
         WeatherWidget.updateAll(context.applicationContext)
     }
 
@@ -207,12 +210,6 @@ private fun WeatherPreviewCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "⌖  ${weather.location}",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                )
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = "Home widget preview",
@@ -227,6 +224,12 @@ private fun WeatherPreviewCard(
             ) {
                 Spacer(modifier = Modifier.size(112.dp, 1.dp))
                 Column {
+                    Text(
+                        text = weather.location,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                     Text(
                         text = weather.temperature(unitSystem),
                         color = Color.White,

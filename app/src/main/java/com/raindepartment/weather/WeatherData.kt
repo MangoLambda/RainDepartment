@@ -54,6 +54,8 @@ internal object DummyWeatherData {
 internal object WeatherPreferences {
     private const val PREFERENCES_NAME = "weather_preferences"
     private const val UNIT_SYSTEM_KEY = "unit_system"
+    private const val BACKPLATE_INDEX_KEY = "backplate_index"
+    private const val DEFAULT_BACKPLATE_INDEX = 4
 
     fun unitSystem(context: Context): UnitSystem {
         val stored = context
@@ -68,6 +70,19 @@ internal object WeatherPreferences {
             .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(UNIT_SYSTEM_KEY, unitSystem.name)
+            .apply()
+    }
+
+    fun backplateIndex(context: Context): Int = context
+        .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        .getInt(BACKPLATE_INDEX_KEY, DEFAULT_BACKPLATE_INDEX)
+        .coerceIn(BackplateChoices.indices)
+
+    fun setBackplateIndex(context: Context, index: Int) {
+        context
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(BACKPLATE_INDEX_KEY, index.coerceIn(BackplateChoices.indices))
             .apply()
     }
 }
