@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">RainDepartment</string>
+    <string name="widget_label">RainDepartment Weather</string>
+    <string name="widget_description">A RainDepartment weather card.</string>
+</resources>
