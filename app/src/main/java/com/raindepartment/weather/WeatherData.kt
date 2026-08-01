@@ -2,6 +2,7 @@ package com.raindepartment.weather
 
 import android.content.Context
 import kotlin.math.roundToInt
+import java.util.Locale
 
 internal enum class UnitSystem {
     METRIC,
@@ -39,14 +40,14 @@ internal enum class WeatherCondition {
 
 internal object DummyWeatherData {
     val current = DummyWeather(
-        location = "Austin",
+        location = "Austin, Texas",
         condition = WeatherCondition.PARTLY_CLOUDY,
         conditionLabel = "Partly cloudy",
         isDay = true,
         currentCelsius = 28.9,
-        highCelsius = 31.1,
-        lowCelsius = 20.0,
-        precipitationChance = 20,
+        highCelsius = 31.7,
+        lowCelsius = 22.8,
+        precipitationChance = 80,
         uvIndex = 7,
     )
 }
@@ -60,9 +61,9 @@ internal object WeatherPreferences {
     fun unitSystem(context: Context): UnitSystem {
         val stored = context
             .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-            .getString(UNIT_SYSTEM_KEY, UnitSystem.METRIC.name)
+            .getString(UNIT_SYSTEM_KEY, null)
 
-        return UnitSystem.entries.firstOrNull { it.name == stored } ?: UnitSystem.METRIC
+        return UnitSystem.entries.firstOrNull { it.name == stored } ?: defaultUnitSystem()
     }
 
     fun setUnitSystem(context: Context, unitSystem: UnitSystem) {
@@ -110,4 +111,13 @@ internal fun DummyWeather.highLow(unitSystem: UnitSystem): String {
 internal fun UnitSystem.temperatureUnitLabel(): String = when (this) {
     UnitSystem.METRIC -> "°C"
     UnitSystem.IMPERIAL -> "°F"
+}
+
+internal fun defaultUnitSystem(locale: Locale = Locale.getDefault()): UnitSystem {
+    val country = locale.country.uppercase(Locale.ROOT)
+    return if (country in setOf("US", "LR", "MM")) {
+        UnitSystem.IMPERIAL
+    } else {
+        UnitSystem.METRIC
+    }
 }
