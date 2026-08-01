@@ -1,8 +1,20 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+val rainDepartmentUpdateBaseUrl = (
+    localProperties.getProperty("RAINDEPARTMENT_UPDATE_BASE_URL")
+        ?: System.getenv("RAINDEPARTMENT_UPDATE_BASE_URL")
+        ?: "https://github.com/MangoLambda/RainDepartment"
+    ).replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.raindepartment.weather"
@@ -14,6 +26,8 @@ android {
         targetSdk = 35
         versionCode = 5
         versionName = "0.0.1"
+
+        buildConfigField("String", "RAINDEPARTMENT_UPDATE_BASE_URL", "\"$rainDepartmentUpdateBaseUrl\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -56,12 +70,14 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.glance.appwidget)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
 
     testImplementation(libs.junit)
+    testImplementation(libs.json)
 
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

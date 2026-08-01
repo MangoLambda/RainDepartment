@@ -1,5 +1,6 @@
 package com.raindepartment.weather
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,17 +21,22 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +49,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.updateAll
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.raindepartment.weather.update.AppUpdateManager
+import com.raindepartment.weather.update.UpdateRelease
+import com.raindepartment.weather.update.UpdateUiState
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,6 +77,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 internal fun RainDepartmentHome() {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val updateManager = remember(context) {
+        AppUpdateManager(context.applicationContext)
+    }
+    val updateState by updateManager.state.collectAsStateWithLifecycle()
+    val updateScope = rememberCoroutineScope()
     val weather = DummyWeatherData.current
     var unitSystem by remember { mutableStateOf(WeatherPreferences.unitSystem(context)) }
     var selectedBackplateIndex by remember {
@@ -70,6 +91,20 @@ internal fun RainDepartmentHome() {
     }
     val selectedBackplate = BackplateChoices[selectedBackplateIndex]
     val previewWeather = weather.forBackplate(selectedBackplate)
+
+    LaunchedEffect(updateManager) {
+        updateManager.check()
+    }
+
+    DisposableEffect(updateManager, lifecycleOwner, activity) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && activity != null) {
+                updateManager.resumeInstall(activity)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(unitSystem, selectedBackplateIndex) {
         WeatherPreferences.setUnitSystem(context, unitSystem)
@@ -161,6 +196,20 @@ internal fun RainDepartmentHome() {
         ForecastSummary(
             weather = previewWeather,
             unitSystem = unitSystem,
+        )
+    }
+
+    if (activity != null) {
+        UpdateDialog(
+            state = updateState,
+            onUpdate = { release ->
+                val job = updateScope.launch { updateManager.download(release) }
+                updateManager.attachDownloadJob(job)
+            },
+            onSkip = updateManager::skip,
+            onCancelDownload = updateManager::cancelDownload,
+            onInstall = { updateManager.install(activity) },
+            onDismissError = updateManager::dismissError,
         )
     }
 }
@@ -410,6 +459,110 @@ private fun SummaryMetric(label: String, value: String) {
             color = DeepBlue,
         )
     }
+}
+
+@Composable
+private fun UpdateDialog(
+    state: UpdateUiState,
+    onUpdate: (UpdateRelease) -> Unit,
+    onSkip: (UpdateRelease) -> Unit,
+    onCancelDownload: () -> Unit,
+    onInstall: () -> Unit,
+    onDismissError: () -> Unit,
+) {
+    when (state) {
+        is UpdateUiState.Available -> AlertDialog(
+            onDismissRequest = { onSkip(state.release) },
+            title = { Text("${state.release.title} is available") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Installed: ${BuildConfig.VERSION_NAME}  •  New: ${state.release.version}")
+                    if (state.release.notes.isNotBlank()) {
+                        Text(
+                            state.release.notes.take(1_500),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text("Android will ask you to approve the installation.")
+                }
+            },
+            confirmButton = { Button(onClick = { onUpdate(state.release) }) { Text("Update") } },
+            dismissButton = {
+                TextButton(onClick = { onSkip(state.release) }) { Text("Skip this version") }
+            },
+        )
+
+        is UpdateUiState.Downloading -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Downloading ${state.release.version}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val progress = if (state.totalBytes > 0L) {
+                        state.bytesRead.toFloat() / state.totalBytes
+                    } else {
+                        0f
+                    }
+                    LinearProgressIndicator(
+                        progress = { progress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    val total = if (state.totalBytes > 0L) {
+                        formatUpdateSize(state.totalBytes)
+                    } else {
+                        "unknown size"
+                    }
+                    Text("${formatUpdateSize(state.bytesRead)} of $total")
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = onCancelDownload) { Text("Cancel") }
+            },
+        )
+
+        is UpdateUiState.AwaitingInstallPermission -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Allow app updates") },
+            text = {
+                Text(
+                    "Allow RainDepartment to install unknown apps, then return here " +
+                        "to continue with ${state.release.version}.",
+                )
+            },
+            confirmButton = { Button(onClick = onInstall) { Text("Open settings") } },
+            dismissButton = {
+                TextButton(onClick = onDismissError) { Text("Cancel") }
+            },
+        )
+
+        is UpdateUiState.ReadyToInstall -> {
+            LaunchedEffect(state.release.tag) { onInstall() }
+            AlertDialog(
+                onDismissRequest = {},
+                title = { Text("Update ready") },
+                text = { Text("Opening Android's installer for ${state.release.version}…") },
+                confirmButton = { Button(onClick = onInstall) { Text("Install") } },
+                dismissButton = {
+                    TextButton(onClick = onDismissError) { Text("Cancel") }
+                },
+            )
+        }
+
+        is UpdateUiState.Error -> AlertDialog(
+            onDismissRequest = onDismissError,
+            title = { Text("Update failed") },
+            text = { Text(state.message) },
+            confirmButton = { Button(onClick = onDismissError) { Text("OK") } },
+        )
+
+        UpdateUiState.Idle, UpdateUiState.Checking -> Unit
+    }
+}
+
+private fun formatUpdateSize(bytes: Long): String {
+    if (bytes < 1_024L) return "$bytes B"
+    if (bytes < 1_024L * 1_024L) return "%.1f KB".format(bytes / 1_024f)
+    return "%.1f MB".format(bytes / (1_024f * 1_024f))
 }
 
 private val Navy = Color(0xFF183354)
