@@ -24,7 +24,7 @@ android {
         applicationId = "com.raindepartment.weather"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
+        versionCode = 10
         versionName = "0.0.1"
 
         buildConfigField("String", "RAINDEPARTMENT_UPDATE_BASE_URL", "\"$rainDepartmentUpdateBaseUrl\"")
@@ -38,6 +38,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Alpha APKs are distributed directly and must be update-compatible with
+            // the debug-signed APKs used by the project. Keep this signing key stable
+            // across releases until a production key is configured.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
