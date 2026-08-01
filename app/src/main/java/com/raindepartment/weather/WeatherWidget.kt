@@ -1,6 +1,7 @@
 package com.raindepartment.weather
 
 import android.content.Context
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -14,6 +15,7 @@ import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.color.ColorProvider
+import androidx.glance.currentState
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
@@ -31,10 +33,13 @@ import androidx.glance.text.TextStyle
 object WeatherWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
+            val refreshState = currentState<Any?>()
             val selectedBackplate = BackplateChoices[WeatherPreferences.backplateIndex(context)]
             val weather = DummyWeatherData.current.forBackplate(selectedBackplate)
             val unitSystem = WeatherPreferences.unitSystem(context)
-            val backplate = BackplateLoader.imageProvider(context, weather)
+            val backplate = remember(refreshState, weather.condition, weather.isDay) {
+                BackplateLoader.imageProvider(context, weather)
+            }
 
             WeatherWidgetContent(
                 weather = weather,
