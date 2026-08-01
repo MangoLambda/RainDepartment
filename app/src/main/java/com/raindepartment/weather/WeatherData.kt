@@ -9,16 +9,15 @@ internal enum class UnitSystem {
     IMPERIAL,
 }
 
-internal data class DummyWeather(
+internal data class CurrentWeather(
     val location: String,
     val condition: WeatherCondition,
     val conditionLabel: String,
     val isDay: Boolean,
-    val currentCelsius: Double,
-    val highCelsius: Double,
-    val lowCelsius: Double,
+    val currentFahrenheit: Int,
+    val highFahrenheit: Int,
+    val lowFahrenheit: Int,
     val precipitationChance: Int,
-    val uvIndex: Int,
 )
 
 internal enum class WeatherCondition {
@@ -38,25 +37,13 @@ internal enum class WeatherCondition {
     SEVERE_WEATHER,
 }
 
-internal object DummyWeatherData {
-    val current = DummyWeather(
-        location = "Austin, Texas",
-        condition = WeatherCondition.PARTLY_CLOUDY,
-        conditionLabel = "Partly cloudy",
-        isDay = true,
-        currentCelsius = 28.9,
-        highCelsius = 31.7,
-        lowCelsius = 22.8,
-        precipitationChance = 80,
-        uvIndex = 7,
-    )
-}
-
 internal object WeatherPreferences {
     private const val PREFERENCES_NAME = "weather_preferences"
     private const val UNIT_SYSTEM_KEY = "unit_system"
     private const val BACKPLATE_INDEX_KEY = "backplate_index"
+    private const val AUTOMATIC_BACKPLATE_KEY = "automatic_backplate"
     private const val DEFAULT_BACKPLATE_INDEX = 4
+    internal const val AUTOMATIC_BACKPLATE_INDEX = -1
 
     fun unitSystem(context: Context): UnitSystem {
         val stored = context
@@ -74,36 +61,62 @@ internal object WeatherPreferences {
             .apply()
     }
 
-    fun backplateIndex(context: Context): Int = context
-        .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        .getInt(BACKPLATE_INDEX_KEY, DEFAULT_BACKPLATE_INDEX)
-        .coerceIn(BackplateChoices.indices)
+    fun isAutomaticBackplate(context: Context): Boolean {
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        if (preferences.contains(AUTOMATIC_BACKPLATE_KEY)) {
+            return preferences.getBoolean(AUTOMATIC_BACKPLATE_KEY, true)
+        }
+
+        // Preserve a manual choice made by older builds. Fresh installs default to the
+        // current live condition instead of the former static partly-cloudy image.
+        return !preferences.contains(BACKPLATE_INDEX_KEY)
+    }
+
+    fun backplateIndex(context: Context): Int {
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        if (isAutomaticBackplate(context)) return AUTOMATIC_BACKPLATE_INDEX
+        return preferences
+            .getInt(BACKPLATE_INDEX_KEY, DEFAULT_BACKPLATE_INDEX)
+            .coerceIn(BackplateChoices.indices)
+    }
+
+    fun setAutomaticBackplate(context: Context, automatic: Boolean) {
+        context
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(AUTOMATIC_BACKPLATE_KEY, automatic)
+            .apply()
+    }
 
     fun setBackplateIndex(context: Context, index: Int) {
         context
             .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putInt(BACKPLATE_INDEX_KEY, index.coerceIn(BackplateChoices.indices))
+            .putInt(
+                BACKPLATE_INDEX_KEY,
+                index.coerceIn(AUTOMATIC_BACKPLATE_INDEX, BackplateChoices.lastIndex),
+            )
+            .putBoolean(AUTOMATIC_BACKPLATE_KEY, index == AUTOMATIC_BACKPLATE_INDEX)
             .apply()
     }
 }
 
-internal fun DummyWeather.temperature(unitSystem: UnitSystem): String {
+internal fun CurrentWeather.temperature(unitSystem: UnitSystem): String {
     val value = when (unitSystem) {
-        UnitSystem.METRIC -> currentCelsius
-        UnitSystem.IMPERIAL -> currentCelsius * 9 / 5 + 32
+        UnitSystem.METRIC -> (currentFahrenheit - 32) * 5.0 / 9.0
+        UnitSystem.IMPERIAL -> currentFahrenheit.toDouble()
     }
     return "${value.roundToInt()}°"
 }
 
-internal fun DummyWeather.highLow(unitSystem: UnitSystem): String {
+internal fun CurrentWeather.highLow(unitSystem: UnitSystem): String {
     val high = when (unitSystem) {
-        UnitSystem.METRIC -> highCelsius
-        UnitSystem.IMPERIAL -> highCelsius * 9 / 5 + 32
+        UnitSystem.METRIC -> (highFahrenheit - 32) * 5.0 / 9.0
+        UnitSystem.IMPERIAL -> highFahrenheit.toDouble()
     }.roundToInt()
     val low = when (unitSystem) {
-        UnitSystem.METRIC -> lowCelsius
-        UnitSystem.IMPERIAL -> lowCelsius * 9 / 5 + 32
+        UnitSystem.METRIC -> (lowFahrenheit - 32) * 5.0 / 9.0
+        UnitSystem.IMPERIAL -> lowFahrenheit.toDouble()
     }.roundToInt()
     return "H:$high°  L:$low°"
 }

@@ -64,18 +64,21 @@ private object BackplateCatalog {
 }
 
 internal object BackplateLoader {
-    fun imageProvider(context: Context, weather: DummyWeather): ImageProvider =
+    fun imageProvider(context: Context, weather: CurrentWeather): ImageProvider =
         ImageProvider(bitmap(context, weather))
 
-    fun bitmap(context: Context, weather: DummyWeather): Bitmap =
+    fun bitmap(context: Context, weather: CurrentWeather): Bitmap =
         BitmapFactory.decodeResource(
             context.resources,
             BackplateCatalog.resourceFor(weather.condition, weather.isDay),
         ) ?: error("Unable to load weather backplate for ${weather.condition} / ${weather.isDay}")
 }
 
-internal fun DummyWeather.forBackplate(choice: BackplateChoice): DummyWeather = copy(
-    condition = choice.condition,
-    conditionLabel = choice.label.substringBefore(" —"),
-    isDay = choice.isDay,
-)
+internal fun CurrentWeather.forBackplate(choice: BackplateChoice?): CurrentWeather =
+    choice?.let {
+        copy(
+            condition = it.condition,
+            conditionLabel = it.label.substringBefore(" —"),
+            isDay = it.isDay,
+        )
+    } ?: this

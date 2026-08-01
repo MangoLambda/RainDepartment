@@ -34,21 +34,42 @@ object WeatherWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
             val refreshState = currentState<Any?>()
-            val selectedBackplate = BackplateChoices[WeatherPreferences.backplateIndex(context)]
-            val weather = DummyWeatherData.current.forBackplate(selectedBackplate)
+            val snapshot = SharedPreferencesWeatherCache(context).read()
             val unitSystem = WeatherPreferences.unitSystem(context)
-            val backplate = remember(refreshState, weather.condition, weather.isDay) {
-                BackplateLoader.imageProvider(context, weather)
+            val selectedBackplate = if (WeatherPreferences.isAutomaticBackplate(context)) {
+                null
+            } else {
+                BackplateChoices.getOrNull(WeatherPreferences.backplateIndex(context))
             }
 
-            WeatherWidgetContent(
-                weather = weather,
-                unitSystem = unitSystem,
-                backplate = backplate,
-            )
+            if (snapshot == null) {
+                WeatherWidgetUnavailable()
+            } else {
+                val weather = snapshot.forecast.currentWeather().forBackplate(selectedBackplate)
+                val backplate = remember(
+                    refreshState,
+                    weather.condition,
+                    weather.isDay,
+                    snapshot.fetchedAtEpochMillis,
+                ) {
+                    BackplateLoader.imageProvider(context, weather)
+                }
+
+                WeatherWidgetContent(
+                    weather = weather,
+                    forecast = snapshot.forecast,
+                    unitSystem = unitSystem,
+                    backplate = backplate,
+                    isStale = System.currentTimeMillis() - snapshot.fetchedAtEpochMillis >=
+                        SIX_HOURS_MILLIS,
+                )
+            }
         }
     }
+
+    private const val SIX_HOURS_MILLIS = 6 * 60 * 60 * 1_000L
 }
+
 class WeatherWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = WeatherWidget
 }
@@ -66,12 +87,55 @@ private val WidgetDivider = ColorProvider(
     day = Color(0x70FFFFFF),
     night = Color(0x70FFFFFF),
 )
+private val WidgetUnavailableBackground = ColorProvider(
+    day = Color(0xFFDDEBF6),
+    night = Color(0xFFDDEBF6),
+)
+
+@androidx.compose.runtime.Composable
+private fun WeatherWidgetUnavailable() {
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .cornerRadius(24.dp)
+            .background(WidgetUnavailableBackground)
+            .clickable(actionStartActivity<MainActivity>()),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "RainDepartment",
+                style = TextStyle(
+                    color = ColorProvider(
+                        day = Color(0xFF164B91),
+                        night = Color(0xFF164B91),
+                    ),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+            )
+            Spacer(modifier = GlanceModifier.height(4.dp))
+            Text(
+                text = "Open app to load live weather",
+                style = TextStyle(
+                    color = ColorProvider(
+                        day = Color(0xFF607792),
+                        night = Color(0xFF607792),
+                    ),
+                    fontSize = 10.sp,
+                ),
+            )
+        }
+    }
+}
 
 @androidx.compose.runtime.Composable
 private fun WeatherWidgetContent(
-    weather: DummyWeather,
+    weather: CurrentWeather,
+    forecast: DashboardForecast,
     unitSystem: UnitSystem,
     backplate: androidx.glance.ImageProvider,
+    isStale: Boolean,
 ) {
     Box(
         modifier = GlanceModifier
@@ -119,7 +183,7 @@ private fun WeatherWidgetContent(
                         )
                         Spacer(modifier = GlanceModifier.height(2.dp))
                         Text(
-                            text = "Today",
+                            text = if (isStale) "Stale forecast" else "Today",
                             style = TextStyle(
                                 color = WidgetSoftWhite,
                                 fontSize = 10.sp,
@@ -146,7 +210,7 @@ private fun WeatherWidgetContent(
                         )
                         Spacer(modifier = GlanceModifier.height(4.dp))
                         Text(
-                            text = "${weather.precipitationChance}% precip  ·  UV ${weather.uvIndex}",
+                            text = "${forecast.precipitationChance}% precip  ·  ${forecast.rainStartsIn}",
                             style = TextStyle(
                                 color = WidgetSoftWhite,
                                 fontSize = 10.sp,

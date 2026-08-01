@@ -1,9 +1,12 @@
 package com.raindepartment.weather
 
+import android.Manifest
 import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -42,6 +45,7 @@ import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.GpsFixed
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Umbrella
@@ -63,6 +67,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -80,6 +85,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -96,7 +102,6 @@ import com.raindepartment.weather.update.UpdateUiState
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.max
-import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -115,16 +120,33 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-internal fun RainDepartmentApp() {
+internal fun RainDepartmentApp(
+    repository: WeatherRepository? = null,
+    requestLocationPermission: Boolean = true,
+    checkForUpdates: Boolean = true,
+    updateWidget: Boolean = true,
+) {
     val context = LocalContext.current
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
+    val weatherRepository = repository ?: remember(context) {
+        WeatherRepositoryFactory.create(context.applicationContext)
+    }
+    val weatherState by weatherRepository.state.collectAsStateWithLifecycle()
+    val weatherScope = rememberCoroutineScope()
+    var locationPermissionRequested by rememberSaveable { mutableStateOf(false) }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        weatherScope.launch {
+            weatherRepository.refresh(force = true, updateLocation = granted)
+        }
+    }
     val updateManager = remember(context) {
         AppUpdateManager(context.applicationContext)
     }
     val updateState by updateManager.state.collectAsStateWithLifecycle()
     val updateScope = rememberCoroutineScope()
-    val forecast = MockDashboardData.current
 
     var selectedTabName by rememberSaveable { mutableStateOf(DashboardTab.BRIEFING.name) }
     val selectedTab = DashboardTab.valueOf(selectedTabName)
@@ -132,34 +154,83 @@ internal fun RainDepartmentApp() {
     val selectedRange = ForecastRange.valueOf(selectedRangeName)
     var unitSystem by remember { mutableStateOf(WeatherPreferences.unitSystem(context)) }
     var selectedBackplateIndex by remember {
-        mutableStateOf(WeatherPreferences.backplateIndex(context))
+        mutableIntStateOf(WeatherPreferences.backplateIndex(context))
     }
-    val selectedBackplate = BackplateChoices[selectedBackplateIndex]
-    val previewWeather = DummyWeatherData.current.forBackplate(selectedBackplate)
+    val selectedBackplate = BackplateChoices.getOrNull(selectedBackplateIndex)
+    val currentWeather = weatherState.snapshot?.forecast?.currentWeather()
+    val previewWeather = currentWeather?.forBackplate(selectedBackplate)
 
-    LaunchedEffect(updateManager) {
-        updateManager.check()
+    val refreshForecast: () -> Unit = {
+        weatherScope.launch {
+            weatherRepository.refresh(force = true, updateLocation = false)
+        }
+    }
+    val refreshLocation: () -> Unit = {
+        if (context.hasCoarseLocationPermission()) {
+            weatherScope.launch {
+                weatherRepository.refresh(force = true, updateLocation = true)
+            }
+        } else {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
     }
 
-    DisposableEffect(updateManager, lifecycleOwner, activity) {
+    LaunchedEffect(updateManager, checkForUpdates) {
+        if (checkForUpdates) updateManager.check()
+    }
+
+    LaunchedEffect(weatherRepository, requestLocationPermission) {
+        if (requestLocationPermission) {
+            WeatherRefreshScheduler.schedule(context.applicationContext)
+        }
+        when {
+            requestLocationPermission &&
+                !context.hasCoarseLocationPermission() &&
+                !locationPermissionRequested -> {
+                locationPermissionRequested = true
+                locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+            else -> {
+                weatherRepository.refresh(
+                    updateLocation = requestLocationPermission &&
+                        context.hasCoarseLocationPermission(),
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(weatherState.snapshot?.fetchedAtEpochMillis, repository, updateWidget) {
+        if (updateWidget && repository == null && weatherState.snapshot != null) {
+            WeatherWidget.updateAll(context.applicationContext)
+        }
+    }
+
+    DisposableEffect(updateManager, weatherRepository, lifecycleOwner, activity) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && activity != null) {
-                updateManager.resumeInstall(activity)
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (checkForUpdates && activity != null) updateManager.resumeInstall(activity)
+                weatherScope.launch { weatherRepository.refresh() }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(unitSystem, selectedBackplateIndex) {
+    LaunchedEffect(unitSystem, selectedBackplateIndex, updateWidget) {
         WeatherPreferences.setUnitSystem(context, unitSystem)
         WeatherPreferences.setBackplateIndex(context, selectedBackplateIndex)
-        WeatherWidget.updateAll(context.applicationContext)
+        if (updateWidget) WeatherWidget.updateAll(context.applicationContext)
     }
 
     Scaffold(
         containerColor = DashboardBackground,
-        topBar = { RainDepartmentHeader() },
+        topBar = {
+            RainDepartmentHeader(
+                onRefresh = refreshForecast,
+                onRefreshLocation = refreshLocation,
+                isRefreshing = weatherState.isRefreshing,
+            )
+        },
         bottomBar = {
             RainDepartmentBottomNavigation(
                 selected = selectedTab,
@@ -173,12 +244,22 @@ internal fun RainDepartmentApp() {
                 .padding(paddingValues),
         ) {
             when (selectedTab) {
-                DashboardTab.BRIEFING -> BriefingScreen(
-                    forecast = forecast,
-                    unitSystem = unitSystem,
-                    backgroundWeather = previewWeather,
-                    selectedRange = selectedRange,
-                    onRangeSelected = { selectedRangeName = it.name },
+                DashboardTab.BRIEFING -> weatherState.snapshot?.let { snapshot ->
+                    BriefingScreen(
+                        forecast = snapshot.forecast,
+                        unitSystem = unitSystem,
+                        backgroundWeather = snapshot.forecast.currentWeather(),
+                        selectedRange = selectedRange,
+                        onRangeSelected = { selectedRangeName = it.name },
+                        isRefreshing = weatherState.isRefreshing,
+                        isStale = weatherState.isStale,
+                        errorMessage = weatherState.errorMessage,
+                        onRefresh = refreshForecast,
+                    )
+                } ?: BriefingUnavailableScreen(
+                    isRefreshing = weatherState.isRefreshing,
+                    errorMessage = weatherState.errorMessage,
+                    onRefresh = refreshForecast,
                 )
 
                 DashboardTab.SETTINGS -> SettingsScreen(
@@ -188,12 +269,20 @@ internal fun RainDepartmentApp() {
                     selectedBackplateIndex = selectedBackplateIndex,
                     onUnitSystemSelected = { unitSystem = it },
                     onPreviousBackplate = {
-                        selectedBackplateIndex =
-                            (selectedBackplateIndex - 1 + BackplateChoices.size) % BackplateChoices.size
+                        selectedBackplateIndex = when {
+                            selectedBackplateIndex == WeatherPreferences.AUTOMATIC_BACKPLATE_INDEX ->
+                                BackplateChoices.lastIndex
+                            selectedBackplateIndex == 0 ->
+                                WeatherPreferences.AUTOMATIC_BACKPLATE_INDEX
+                            else -> selectedBackplateIndex - 1
+                        }
                     },
                     onNextBackplate = {
-                        selectedBackplateIndex =
-                            (selectedBackplateIndex + 1) % BackplateChoices.size
+                        selectedBackplateIndex = when {
+                            selectedBackplateIndex == BackplateChoices.lastIndex ->
+                                WeatherPreferences.AUTOMATIC_BACKPLATE_INDEX
+                            else -> selectedBackplateIndex + 1
+                        }
                     },
                 )
 
@@ -218,7 +307,11 @@ internal fun RainDepartmentApp() {
 }
 
 @Composable
-private fun RainDepartmentHeader() {
+private fun RainDepartmentHeader(
+    onRefresh: () -> Unit,
+    onRefreshLocation: () -> Unit,
+    isRefreshing: Boolean,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -258,10 +351,18 @@ private fun RainDepartmentHeader() {
                 fontWeight = FontWeight.Bold,
             )
         }
-        IconButton(onClick = {}) {
+        IconButton(onClick = onRefresh, enabled = !isRefreshing) {
+            Icon(
+                imageVector = Icons.Outlined.Refresh,
+                contentDescription = "Refresh forecast",
+                tint = Color.White.copy(alpha = if (isRefreshing) 0.55f else 1f),
+                modifier = Modifier.size(27.dp),
+            )
+        }
+        IconButton(onClick = onRefreshLocation, enabled = !isRefreshing) {
             Icon(
                 imageVector = Icons.Outlined.LocationOn,
-                contentDescription = "Change location",
+                contentDescription = "Use current location",
                 tint = Color.White,
                 modifier = Modifier.size(27.dp),
             )
@@ -334,9 +435,13 @@ private fun DashboardTab.icon(): ImageVector = when (this) {
 private fun BriefingScreen(
     forecast: DashboardForecast,
     unitSystem: UnitSystem,
-    backgroundWeather: DummyWeather,
+    backgroundWeather: CurrentWeather,
     selectedRange: ForecastRange,
     onRangeSelected: (ForecastRange) -> Unit,
+    isRefreshing: Boolean,
+    isStale: Boolean,
+    errorMessage: String?,
+    onRefresh: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -345,6 +450,14 @@ private fun BriefingScreen(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (isRefreshing || isStale || errorMessage != null) {
+            WeatherStatusBanner(
+                isRefreshing = isRefreshing,
+                isStale = isStale,
+                errorMessage = errorMessage,
+                onRefresh = onRefresh,
+            )
+        }
         WeatherHeroCard(
             forecast = forecast,
             unitSystem = unitSystem,
@@ -375,6 +488,101 @@ private fun BriefingScreen(
             },
         )
         Spacer(modifier = Modifier.height(4.dp))
+        OpenMeteoAttribution()
+    }
+}
+
+@Composable
+private fun BriefingUnavailableScreen(
+    isRefreshing: Boolean,
+    errorMessage: String?,
+    onRefresh: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Cloud,
+            contentDescription = null,
+            tint = AccentBlue,
+            modifier = Modifier.size(54.dp),
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        Text(
+            text = if (isRefreshing) "Loading live weather…" else "Weather is unavailable",
+            color = Navy,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = errorMessage ?: "Open-Meteo data will appear here after the first refresh.",
+            color = MutedNavy,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onRefresh, enabled = !isRefreshing) {
+            Text(if (isRefreshing) "Loading…" else "Try again")
+        }
+        Spacer(modifier = Modifier.height(18.dp))
+        OpenMeteoAttribution()
+    }
+}
+
+@Composable
+private fun WeatherStatusBanner(
+    isRefreshing: Boolean,
+    isStale: Boolean,
+    errorMessage: String?,
+    onRefresh: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFE7F2FC)),
+        border = BorderStroke(1.dp, Color(0xFFC9E1F5)),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = when {
+                    isRefreshing -> "Updating live weather…"
+                    errorMessage != null -> "Showing the last successful forecast."
+                    isStale -> "This forecast is more than six hours old."
+                    else -> "Live weather updated."
+                },
+                modifier = Modifier.weight(1f),
+                color = DeepBlue,
+                fontSize = 11.sp,
+            )
+            if (!isRefreshing) {
+                TextButton(onClick = onRefresh) {
+                    Text("Refresh", fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenMeteoAttribution() {
+    val uriHandler = LocalUriHandler.current
+    TextButton(onClick = { uriHandler.openUri("https://open-meteo.com/") }) {
+        Text(
+            text = "Weather data by Open-Meteo.com · GEM Canada",
+            color = MutedNavy,
+            fontSize = 10.sp,
+        )
     }
 }
 
@@ -382,7 +590,7 @@ private fun BriefingScreen(
 private fun WeatherHeroCard(
     forecast: DashboardForecast,
     unitSystem: UnitSystem,
-    backgroundWeather: DummyWeather,
+    backgroundWeather: CurrentWeather,
 ) {
     val context = LocalContext.current
     val bitmap = remember(context, backgroundWeather.condition, backgroundWeather.isDay) {
@@ -404,7 +612,7 @@ private fun WeatherHeroCard(
             ) {
                 Image(
                     bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "Partly cloudy sky over Austin",
+                    contentDescription = "${forecast.conditionLabel} sky over ${forecast.location}",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
@@ -499,7 +707,7 @@ private fun WeatherHeroCard(
                         modifier = Modifier.padding(top = 1.dp),
                     ) {
                         ConditionIcon(
-                            condition = WeatherCondition.PARTLY_CLOUDY,
+                            condition = forecast.condition,
                             modifier = Modifier.size(25.dp),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -798,7 +1006,7 @@ private fun PrecipitationCard(
             points = forecast.precipitation24h,
             lineColor = ChartBlue,
             fillColor = ChartBlue.copy(alpha = 0.25f),
-            maxValue = 1f,
+            maxValue = max(0.1f, forecast.precipitation24h.maxOfOrNull { it.value } ?: 0.1f),
         )
         Spacer(modifier = Modifier.height(3.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -817,7 +1025,7 @@ private fun PrecipitationCard(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "Rain through tomorrow 10 AM",
+                    text = "Expected total through tomorrow",
                     color = MutedNavy,
                     fontSize = 10.sp,
                 )
@@ -839,7 +1047,7 @@ private fun WindCard(
             points = forecast.windByHour,
             lineColor = Aqua,
             fillColor = Aqua.copy(alpha = 0.12f),
-            maxValue = 20f,
+            maxValue = max(1f, forecast.windByHour.maxOfOrNull { it.value } ?: 1f),
         )
         Spacer(modifier = Modifier.height(3.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -858,7 +1066,7 @@ private fun WindCard(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "Peak at 2 PM (${forecast.peakWindDirection})",
+                    text = "Peak at ${forecast.peakWindTime} (${forecast.peakWindDirection})",
                     color = MutedNavy,
                     fontSize = 10.sp,
                 )
@@ -1211,9 +1419,9 @@ private fun ConditionIcon(condition: WeatherCondition, modifier: Modifier) {
 
 @Composable
 private fun SettingsScreen(
-    weather: DummyWeather,
+    weather: CurrentWeather?,
     unitSystem: UnitSystem,
-    selectedBackplate: BackplateChoice,
+    selectedBackplate: BackplateChoice?,
     selectedBackplateIndex: Int,
     onUnitSystemSelected: (UnitSystem) -> Unit,
     onPreviousBackplate: () -> Unit,
@@ -1249,7 +1457,7 @@ private fun SettingsScreen(
                 Spacer(modifier = Modifier.width(6.dp))
                 Column {
                     Text(text = "Widget appearance", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text(text = "Choose the illustrated weather backplate.", color = MutedNavy, fontSize = 11.sp)
+                    Text(text = "Use the live condition or choose an illustrated backplate.", color = MutedNavy, fontSize = 11.sp)
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -1261,6 +1469,7 @@ private fun SettingsScreen(
                 onNext = onNextBackplate,
             )
         }
+        OpenMeteoAttribution()
     }
 }
 
@@ -1321,7 +1530,26 @@ private fun UnitOption(
 }
 
 @Composable
-private fun WeatherPreviewCard(weather: DummyWeather, unitSystem: UnitSystem) {
+private fun WeatherPreviewCard(weather: CurrentWeather?, unitSystem: UnitSystem) {
+    if (weather == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(Color(0xFFDDEBF6)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Waiting for live weather…",
+                color = DeepBlue,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        return
+    }
+
     val context = LocalContext.current
     val bitmap = remember(context, weather.condition, weather.isDay) {
         BackplateLoader.bitmap(context, weather)
@@ -1367,7 +1595,7 @@ private fun WeatherPreviewCard(weather: DummyWeather, unitSystem: UnitSystem) {
 
 @Composable
 private fun BackplateBrowser(
-    selected: BackplateChoice,
+    selected: BackplateChoice?,
     index: Int,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -1384,8 +1612,18 @@ private fun BackplateBrowser(
             Text(text = "Previous")
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = selected.label, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text(text = "${index + 1} of ${BackplateChoices.size}", color = MutedNavy, fontSize = 10.sp)
+            Text(
+                text = selected?.label ?: "Automatic (live condition)",
+                color = Navy,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "${if (index == WeatherPreferences.AUTOMATIC_BACKPLATE_INDEX) 1 else index + 2} " +
+                    "of ${BackplateChoices.size + 1}",
+                color = MutedNavy,
+                fontSize = 10.sp,
+            )
         }
         TextButton(onClick = onNext) {
             Text(text = "Next")
@@ -1532,17 +1770,6 @@ private fun formatUpdateSize(bytes: Long): String {
 private fun Double.toRainValue(unitSystem: UnitSystem): String = when (unitSystem) {
     UnitSystem.IMPERIAL -> String.format(Locale.US, "%.2f", this)
     UnitSystem.METRIC -> String.format(Locale.US, "%.1f", this * 25.4)
-}
-
-private fun HourlyForecast.temperature(unitSystem: UnitSystem): String =
-    MockDashboardData.current.temperature(temperatureFahrenheit, unitSystem)
-
-private fun HourlyForecast.windSpeed(unitSystem: UnitSystem): String {
-    val value = when (unitSystem) {
-        UnitSystem.IMPERIAL -> windMph
-        UnitSystem.METRIC -> (windMph * 1.60934).roundToInt()
-    }
-    return value.toString()
 }
 
 private val DashboardBackground = Color(0xFFF0F7FD)
