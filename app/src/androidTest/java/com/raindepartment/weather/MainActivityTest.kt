@@ -1,10 +1,12 @@
 package com.raindepartment.weather
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Before
 import org.junit.Rule
@@ -54,6 +56,7 @@ class MainActivityTest {
     fun cityPickerCanSelectAnotherCity() {
         composeRule.onNodeWithContentDescription("Choose city").performClick()
         composeRule.onNodeWithText("Choose a city").assertIsDisplayed()
+        composeRule.onNode(hasSetTextAction()).performTextInput("Denver")
         composeRule.onNodeWithText("Denver, Colorado").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Denver, Colorado").assertIsDisplayed()

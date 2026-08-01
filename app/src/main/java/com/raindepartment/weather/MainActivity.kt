@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,7 +50,6 @@ import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.GpsFixed
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.LocationCity
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
@@ -59,6 +60,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -68,6 +70,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -179,7 +182,11 @@ internal fun RainDepartmentApp(
 
     val refreshForecast: () -> Unit = {
         weatherScope.launch {
-            weatherRepository.refresh(force = true, updateLocation = false)
+            weatherRepository.refresh(
+                force = true,
+                updateLocation = false,
+                locationOverride = selectedCityLocation,
+            )
         }
     }
     val refreshLocation: () -> Unit = {
@@ -258,7 +265,6 @@ internal fun RainDepartmentApp(
         containerColor = DashboardBackground,
         topBar = {
             RainDepartmentHeader(
-                onRefresh = refreshForecast,
                 onRefreshLocation = refreshLocation,
                 onChooseCity = { isCityPickerVisible = true },
                 isRefreshing = weatherState.isRefreshing,
@@ -277,24 +283,27 @@ internal fun RainDepartmentApp(
                 .padding(paddingValues),
         ) {
             when (selectedTab) {
-                DashboardTab.BRIEFING -> weatherState.snapshot?.let { snapshot ->
-                    BriefingScreen(
-                        forecast = snapshot.forecast,
-                        unitSystem = unitSystem,
-                        backgroundWeather = snapshot.forecast.currentWeather(),
-                        selectedRange = selectedRange,
-                        onRangeSelected = { selectedRangeName = it.name },
-                        isRefreshing = weatherState.isRefreshing,
-                        isStale = weatherState.isStale,
-                        errorMessage = weatherState.errorMessage,
-                        onRefresh = refreshForecast,
-                        onLocationClick = { isCityPickerVisible = true },
-                    )
-                } ?: BriefingUnavailableScreen(
+                DashboardTab.BRIEFING -> RefreshableBriefingContent(
                     isRefreshing = weatherState.isRefreshing,
-                    errorMessage = weatherState.errorMessage,
                     onRefresh = refreshForecast,
-                )
+                ) {
+                    weatherState.snapshot?.let { snapshot ->
+                        BriefingScreen(
+                            forecast = snapshot.forecast,
+                            unitSystem = unitSystem,
+                            backgroundWeather = snapshot.forecast.currentWeather(),
+                            selectedRange = selectedRange,
+                            onRangeSelected = { selectedRangeName = it.name },
+                            isRefreshing = weatherState.isRefreshing,
+                            isStale = weatherState.isStale,
+                            errorMessage = weatherState.errorMessage,
+                            onLocationClick = { isCityPickerVisible = true },
+                        )
+                    } ?: BriefingUnavailableScreen(
+                        isRefreshing = weatherState.isRefreshing,
+                        errorMessage = weatherState.errorMessage,
+                    )
+                }
 
                 DashboardTab.SETTINGS -> SettingsScreen(
                     weather = previewWeather,
@@ -357,7 +366,6 @@ internal fun RainDepartmentApp(
 
 @Composable
 private fun RainDepartmentHeader(
-    onRefresh: () -> Unit,
     onRefreshLocation: () -> Unit,
     onChooseCity: () -> Unit,
     isRefreshing: Boolean,
@@ -413,14 +421,6 @@ private fun RainDepartmentHeader(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onRefresh, enabled = !isRefreshing) {
-                        Icon(
-                            imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "Refresh forecast",
-                            tint = Color.White.copy(alpha = if (isRefreshing) 0.55f else 1f),
-                            modifier = Modifier.size(27.dp),
-                        )
-                    }
                     IconButton(onClick = onRefreshLocation, enabled = !isRefreshing) {
                         Icon(
                             imageVector = Icons.Outlined.GpsFixed,
@@ -488,20 +488,22 @@ private fun CityPickerDialog(
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
-                Column(
+                LazyColumn(
                     modifier = Modifier
                         .heightIn(max = 300.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .fillMaxWidth(),
                 ) {
                     if (cities.isEmpty()) {
-                        Text(
-                            text = "No matching cities",
-                            modifier = Modifier.padding(vertical = 12.dp),
-                            color = MutedNavy,
-                            fontSize = 13.sp,
-                        )
+                        item {
+                            Text(
+                                text = "No matching cities",
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                color = MutedNavy,
+                                fontSize = 13.sp,
+                            )
+                        }
                     } else {
-                        cities.forEach { city ->
+                        items(cities, key = { it.label }) { city ->
                             val isSelected = selectedLocation == city.location
                             TextButton(
                                 onClick = { onSelect(city.location) },
@@ -605,6 +607,22 @@ private fun DashboardTab.icon(): ImageVector = when (this) {
     DashboardTab.SETTINGS -> Icons.Outlined.Settings
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RefreshableBriefingContent(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun BriefingScreen(
     forecast: DashboardForecast,
@@ -615,7 +633,6 @@ private fun BriefingScreen(
     isRefreshing: Boolean,
     isStale: Boolean,
     errorMessage: String?,
-    onRefresh: () -> Unit,
     onLocationClick: () -> Unit,
 ) {
     Column(
@@ -630,7 +647,6 @@ private fun BriefingScreen(
                 isRefreshing = isRefreshing,
                 isStale = isStale,
                 errorMessage = errorMessage,
-                onRefresh = onRefresh,
             )
         }
         WeatherHeroCard(
@@ -672,11 +688,11 @@ private fun BriefingScreen(
 private fun BriefingUnavailableScreen(
     isRefreshing: Boolean,
     errorMessage: String?,
-    onRefresh: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -703,9 +719,12 @@ private fun BriefingUnavailableScreen(
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onRefresh, enabled = !isRefreshing) {
-            Text(if (isRefreshing) "Loading…" else "Try again")
-        }
+        Text(
+            text = "Pull down to refresh",
+            color = AccentBlue,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+        )
         Spacer(modifier = Modifier.height(18.dp))
         OpenMeteoAttribution()
     }
@@ -716,7 +735,6 @@ private fun WeatherStatusBanner(
     isRefreshing: Boolean,
     isStale: Boolean,
     errorMessage: String?,
-    onRefresh: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -742,9 +760,13 @@ private fun WeatherStatusBanner(
                 fontSize = 11.sp,
             )
             if (!isRefreshing) {
-                TextButton(onClick = onRefresh) {
-                    Text("Refresh", fontSize = 11.sp)
-                }
+                Text(
+                    text = "Pull down to refresh",
+                    color = AccentBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.End,
+                )
             }
         }
     }
