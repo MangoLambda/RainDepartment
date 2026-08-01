@@ -144,9 +144,17 @@ private fun WeatherWidgetContent(
                                 fontWeight = FontWeight.Bold,
                             ),
                         )
-                        Spacer(modifier = GlanceModifier.height(5.dp))
+                        Spacer(modifier = GlanceModifier.height(4.dp))
                         Text(
-                            text = "${weather.precipitationChance}% precip  ·  UV ${weather.uvIndex}  ·  ${weather.highLow(unitSystem)}",
+                            text = "${weather.precipitationChance}% precip  ·  UV ${weather.uvIndex}",
+                            style = TextStyle(
+                                color = WidgetSoftWhite,
+                                fontSize = 10.sp,
+                            ),
+                        )
+                        Spacer(modifier = GlanceModifier.height(2.dp))
+                        Text(
+                            text = weather.highLow(unitSystem),
                             style = TextStyle(
                                 color = WidgetSoftWhite,
                                 fontSize = 10.sp,
