@@ -25,6 +25,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -64,6 +65,9 @@ internal fun RainDepartmentHome() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val weather = DummyWeatherData.current
     var unitSystem by remember { mutableStateOf(WeatherPreferences.unitSystem(context)) }
+    var selectedBackplateIndex by remember { mutableStateOf(4) }
+    val selectedBackplate = BackplateChoices[selectedBackplateIndex]
+    val previewWeather = weather.forBackplate(selectedBackplate)
 
     LaunchedEffect(unitSystem) {
         WeatherPreferences.setUnitSystem(context, unitSystem)
@@ -112,8 +116,21 @@ internal fun RainDepartmentHome() {
         Spacer(modifier = Modifier.height(22.dp))
 
         WeatherPreviewCard(
-            weather = weather,
+            weather = previewWeather,
             unitSystem = unitSystem,
+        )
+
+        BackplateBrowser(
+            selected = selectedBackplate,
+            index = selectedBackplateIndex,
+            onPrevious = {
+                selectedBackplateIndex =
+                    (selectedBackplateIndex - 1 + BackplateChoices.size) % BackplateChoices.size
+            },
+            onNext = {
+                selectedBackplateIndex =
+                    (selectedBackplateIndex + 1) % BackplateChoices.size
+            },
         )
 
         Spacer(modifier = Modifier.height(22.dp))
@@ -139,7 +156,7 @@ internal fun RainDepartmentHome() {
         Spacer(modifier = Modifier.height(22.dp))
 
         ForecastSummary(
-            weather = weather,
+            weather = previewWeather,
             unitSystem = unitSystem,
         )
     }
@@ -208,12 +225,7 @@ private fun WeatherPreviewCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                Text(
-                    text = "⛅",
-                    color = Color.White,
-                    fontSize = 48.sp,
-                )
-                Spacer(modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.size(112.dp, 1.dp))
                 Column {
                     Text(
                         text = weather.temperature(unitSystem),
@@ -230,6 +242,42 @@ private fun WeatherPreviewCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BackplateBrowser(
+    selected: BackplateChoice,
+    index: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        TextButton(onClick = onPrevious) {
+            Text(text = "‹ Previous")
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = selected.label,
+                color = Navy,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "${index + 1} of ${BackplateChoices.size}",
+                color = MutedNavy,
+                fontSize = 11.sp,
+            )
+        }
+        TextButton(onClick = onNext) {
+            Text(text = "Next ›")
         }
     }
 }

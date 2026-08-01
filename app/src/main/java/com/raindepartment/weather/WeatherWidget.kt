@@ -82,99 +82,76 @@ private fun WeatherWidgetContent(
         Row(
             modifier = GlanceModifier
                 .fillMaxSize()
-                .padding(18.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
-                modifier = GlanceModifier.width(92.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = GlanceModifier.width(76.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "⛅",
+                    text = "⌖ ${weather.location}",
                     style = TextStyle(
                         color = WidgetWhite,
-                        fontSize = 44.sp,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
                     ),
                 )
                 Spacer(modifier = GlanceModifier.height(3.dp))
                 Text(
-                    text = "Austin",
+                    text = "Today",
                     style = TextStyle(
                         color = WidgetSoftWhite,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontSize = 10.sp,
                     ),
                 )
             }
 
-            Spacer(modifier = GlanceModifier.width(12.dp))
+            Spacer(
+                modifier = GlanceModifier
+                    .width(1.dp)
+                    .height(34.dp)
+                    .background(WidgetDivider),
+            )
+            Spacer(modifier = GlanceModifier.width(10.dp))
+
+            Column(
+                modifier = GlanceModifier.width(60.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = weather.temperature(unitSystem),
+                    style = TextStyle(
+                        color = WidgetWhite,
+                        fontSize = 38.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+            }
+
+            Spacer(modifier = GlanceModifier.width(10.dp))
 
             Column(
                 modifier = GlanceModifier.defaultWeight(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = weather.temperature(unitSystem),
-                        style = TextStyle(
-                            color = WidgetWhite,
-                            fontSize = 40.sp,
-                            fontWeight = FontWeight.Bold,
-                        ),
-                    )
-                    Spacer(modifier = GlanceModifier.width(12.dp))
-                    Text(
-                        text = weather.conditionLabel,
-                        style = TextStyle(
-                            color = WidgetWhite,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                        ),
-                    )
-                }
+                Text(
+                    text = weather.conditionLabel,
+                    style = TextStyle(
+                        color = WidgetWhite,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+                Spacer(modifier = GlanceModifier.height(7.dp))
 
-                Spacer(modifier = GlanceModifier.height(10.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "${weather.precipitationChance}% precip",
-                        style = TextStyle(
-                            color = WidgetSoftWhite,
-                            fontSize = 11.sp,
-                        ),
-                    )
-                    Spacer(modifier = GlanceModifier.width(8.dp))
-                    Spacer(
-                        modifier = GlanceModifier
-                            .width(1.dp)
-                            .height(22.dp)
-                            .background(WidgetDivider),
-                    )
-                    Spacer(modifier = GlanceModifier.width(8.dp))
-                    Text(
-                        text = "UV ${weather.uvIndex}",
-                        style = TextStyle(
-                            color = WidgetSoftWhite,
-                            fontSize = 11.sp,
-                        ),
-                    )
-                    Spacer(modifier = GlanceModifier.width(8.dp))
-                    Spacer(
-                        modifier = GlanceModifier
-                            .width(1.dp)
-                            .height(22.dp)
-                            .background(WidgetDivider),
-                    )
-                    Spacer(modifier = GlanceModifier.width(8.dp))
-                    Text(
-                        text = weather.highLow(unitSystem),
-                        style = TextStyle(
-                            color = WidgetSoftWhite,
-                            fontSize = 11.sp,
-                        ),
-                    )
-                }
+                Text(
+                    text = "${weather.precipitationChance}% precip  ·  UV ${weather.uvIndex}  ·  ${weather.highLow(unitSystem)}",
+                    style = TextStyle(
+                        color = WidgetSoftWhite,
+                        fontSize = 10.sp,
+                    ),
+                )
             }
         }
     }
