@@ -2,6 +2,7 @@
   <title id="precipitation-title">Precipitation</title>
   <path
     fill="#FFFFFF"
+    transform="rotate(-135 12 12)"
     d="M12 2.25S5.5 9.35 5.5 13.55a6.5 6.5 0 1 0 13 0C18.5 9.35 12 2.25 12 2.25Z"
   />
 </svg>
