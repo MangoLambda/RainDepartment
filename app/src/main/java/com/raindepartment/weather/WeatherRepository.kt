@@ -58,6 +58,7 @@ internal class WeatherRepository(
     private val client: GemWeatherClient,
     private val cache: WeatherCache,
     private val locationProvider: WeatherLocationProvider,
+    private val preferredLocation: () -> WeatherLocation? = { null },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
@@ -67,6 +68,7 @@ internal class WeatherRepository(
     suspend fun refresh(
         force: Boolean = false,
         updateLocation: Boolean = false,
+        locationOverride: WeatherLocation? = null,
     ): RefreshResult = mutex.withLock {
         val previous = mutableState.value.snapshot ?: cache.read()
         if (!force && previous != null && clock() - previous.fetchedAtEpochMillis < AUTO_REFRESH_AGE_MS) {
@@ -79,10 +81,15 @@ internal class WeatherRepository(
         )
 
         try {
+            val savedLocation = preferredLocation()
             val location = when {
-                updateLocation -> locationProvider.currentOrNull() ?: previous?.location ?: AustinLocation
+                locationOverride != null -> locationOverride
+                savedLocation != null -> savedLocation
+                updateLocation -> locationProvider.currentOrNull()
+                    ?: throw LocationUnavailableException()
                 previous != null -> previous.location
-                else -> locationProvider.currentOrNull() ?: AustinLocation
+                else -> locationProvider.currentOrNull()
+                    ?: throw LocationUnavailableException()
             }
             val parsed = client.fetch(location)
             val snapshot = WeatherSnapshot(
@@ -142,11 +149,16 @@ internal class WeatherRepository(
     }
 }
 
+private class LocationUnavailableException : IllegalStateException(
+    "Current location is unavailable. Turn on Location or choose a city.",
+)
+
 internal object WeatherRepositoryFactory {
     fun create(context: Context): WeatherRepository = WeatherRepository(
         client = HttpGemWeatherClient(),
         cache = SharedPreferencesWeatherCache(context.applicationContext),
         locationProvider = AndroidWeatherLocationProvider(context.applicationContext),
+        preferredLocation = { WeatherPreferences.selectedLocation(context.applicationContext) },
     )
 }
 

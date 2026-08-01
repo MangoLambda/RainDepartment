@@ -47,15 +47,24 @@ internal class AndroidWeatherLocationProvider(
 
     @TargetApi(Build.VERSION_CODES.R)
     private suspend fun currentLocationApi30(): Location? {
-        val provider = sequenceOf(
+        val providers = sequenceOf(
             LocationManager.NETWORK_PROVIDER,
             LocationManager.GPS_PROVIDER,
             LocationManager.PASSIVE_PROVIDER,
-        ).firstOrNull { providerName ->
+        ).filter { providerName ->
             runCatching { locationManager.isProviderEnabled(providerName) }.getOrDefault(false)
-        } ?: return null
+        }.toList()
 
-        return withTimeoutOrNull(10_000L) {
+        for (provider in providers) {
+            val location = currentLocationForProvider(provider)
+            if (location != null) return location
+        }
+        return null
+    }
+
+    @TargetApi(Build.VERSION_CODES.R)
+    private suspend fun currentLocationForProvider(provider: String): Location? =
+        withTimeoutOrNull(5_000L) {
             suspendCancellableCoroutine { continuation ->
                 val signal = CancellationSignal()
                 continuation.invokeOnCancellation { signal.cancel() }
@@ -74,7 +83,6 @@ internal class AndroidWeatherLocationProvider(
                 }
             }
         }
-    }
 
     @Suppress("MissingPermission")
     private fun lastKnownLocation(): Location? = sequenceOf(
@@ -93,7 +101,8 @@ internal class AndroidWeatherLocationProvider(
                 .getFromLocation(location.latitude, location.longitude, 1)
                 ?.firstOrNull()
                 ?.let { address ->
-                    val city = address.locality ?: address.subAdminArea ?: address.adminArea
+                    val city = address.locality ?: address.subLocality
+                        ?: address.subAdminArea ?: address.adminArea
                     val region = address.adminArea
                     when {
                         city.isNullOrBlank() -> region?.takeIf(String::isNotBlank)

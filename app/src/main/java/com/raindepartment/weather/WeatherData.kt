@@ -42,6 +42,9 @@ internal object WeatherPreferences {
     private const val UNIT_SYSTEM_KEY = "unit_system"
     private const val BACKPLATE_INDEX_KEY = "backplate_index"
     private const val AUTOMATIC_BACKPLATE_KEY = "automatic_backplate"
+    private const val SELECTED_LOCATION_LATITUDE_KEY = "selected_location_latitude"
+    private const val SELECTED_LOCATION_LONGITUDE_KEY = "selected_location_longitude"
+    private const val SELECTED_LOCATION_LABEL_KEY = "selected_location_label"
     private const val DEFAULT_BACKPLATE_INDEX = 4
     internal const val AUTOMATIC_BACKPLATE_INDEX = -1
 
@@ -97,6 +100,44 @@ internal object WeatherPreferences {
                 index.coerceIn(AUTOMATIC_BACKPLATE_INDEX, BackplateChoices.lastIndex),
             )
             .putBoolean(AUTOMATIC_BACKPLATE_KEY, index == AUTOMATIC_BACKPLATE_INDEX)
+            .apply()
+    }
+
+    fun selectedLocation(context: Context): WeatherLocation? {
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        if (!preferences.contains(SELECTED_LOCATION_LATITUDE_KEY) ||
+            !preferences.contains(SELECTED_LOCATION_LONGITUDE_KEY) ||
+            !preferences.contains(SELECTED_LOCATION_LABEL_KEY)
+        ) {
+            return null
+        }
+
+        return runCatching {
+            WeatherLocation(
+                latitude = preferences.getString(SELECTED_LOCATION_LATITUDE_KEY, null)!!.toDouble(),
+                longitude = preferences.getString(SELECTED_LOCATION_LONGITUDE_KEY, null)!!.toDouble(),
+                label = preferences.getString(SELECTED_LOCATION_LABEL_KEY, null)!!,
+            )
+        }.getOrNull()
+    }
+
+    fun setSelectedLocation(context: Context, location: WeatherLocation) {
+        context
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(SELECTED_LOCATION_LATITUDE_KEY, location.latitude.toString())
+            .putString(SELECTED_LOCATION_LONGITUDE_KEY, location.longitude.toString())
+            .putString(SELECTED_LOCATION_LABEL_KEY, location.label)
+            .apply()
+    }
+
+    fun clearSelectedLocation(context: Context) {
+        context
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(SELECTED_LOCATION_LATITUDE_KEY)
+            .remove(SELECTED_LOCATION_LONGITUDE_KEY)
+            .remove(SELECTED_LOCATION_LABEL_KEY)
             .apply()
     }
 }

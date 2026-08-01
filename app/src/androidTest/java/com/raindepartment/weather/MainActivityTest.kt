@@ -2,8 +2,10 @@ package com.raindepartment.weather
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -13,6 +15,9 @@ class MainActivityTest {
 
     @Before
     fun setUp() {
+        WeatherPreferences.clearSelectedLocation(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+        )
         composeRule.setContent {
             RainDepartmentTheme {
                 RainDepartmentApp(
@@ -43,6 +48,15 @@ class MainActivityTest {
 
         composeRule.onNodeWithText("Briefing").performClick()
         composeRule.onNodeWithText("Rain starts in").assertIsDisplayed()
+    }
+
+    @Test
+    fun cityPickerCanSelectAnotherCity() {
+        composeRule.onNodeWithContentDescription("Choose city").performClick()
+        composeRule.onNodeWithText("Choose a city").assertIsDisplayed()
+        composeRule.onNodeWithText("Denver, Colorado").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Denver, Colorado").assertIsDisplayed()
     }
 
     private object FakeWeatherRepository {

@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -25,6 +26,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,8 +47,9 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.GpsFixed
 import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.LocationCity
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Umbrella
@@ -59,6 +63,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -106,6 +111,10 @@ import kotlin.math.max
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = true
+        }
         setContent {
             RainDepartmentTheme {
                 Surface(
@@ -135,11 +144,19 @@ internal fun RainDepartmentApp(
     val weatherState by weatherRepository.state.collectAsStateWithLifecycle()
     val weatherScope = rememberCoroutineScope()
     var locationPermissionRequested by rememberSaveable { mutableStateOf(false) }
+    var selectedCityLocation by remember(context) {
+        mutableStateOf(WeatherPreferences.selectedLocation(context))
+    }
+    var isCityPickerVisible by rememberSaveable { mutableStateOf(false) }
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         weatherScope.launch {
-            weatherRepository.refresh(force = true, updateLocation = granted)
+            weatherRepository.refresh(
+                force = true,
+                updateLocation = granted && selectedCityLocation == null,
+                locationOverride = selectedCityLocation,
+            )
         }
     }
     val updateManager = remember(context) {
@@ -166,12 +183,24 @@ internal fun RainDepartmentApp(
         }
     }
     val refreshLocation: () -> Unit = {
+        selectedCityLocation = null
+        WeatherPreferences.clearSelectedLocation(context)
         if (context.hasCoarseLocationPermission()) {
             weatherScope.launch {
                 weatherRepository.refresh(force = true, updateLocation = true)
             }
         } else {
             locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+    }
+    val selectCity: (WeatherLocation) -> Unit = { location ->
+        selectedCityLocation = location
+        WeatherPreferences.setSelectedLocation(context, location)
+        weatherScope.launch {
+            weatherRepository.refresh(
+                force = true,
+                locationOverride = location,
+            )
         }
     }
 
@@ -185,6 +214,7 @@ internal fun RainDepartmentApp(
         }
         when {
             requestLocationPermission &&
+                selectedCityLocation == null &&
                 !context.hasCoarseLocationPermission() &&
                 !locationPermissionRequested -> {
                 locationPermissionRequested = true
@@ -193,7 +223,9 @@ internal fun RainDepartmentApp(
             else -> {
                 weatherRepository.refresh(
                     updateLocation = requestLocationPermission &&
+                        selectedCityLocation == null &&
                         context.hasCoarseLocationPermission(),
+                    locationOverride = selectedCityLocation,
                 )
             }
         }
@@ -228,6 +260,7 @@ internal fun RainDepartmentApp(
             RainDepartmentHeader(
                 onRefresh = refreshForecast,
                 onRefreshLocation = refreshLocation,
+                onChooseCity = { isCityPickerVisible = true },
                 isRefreshing = weatherState.isRefreshing,
             )
         },
@@ -255,6 +288,7 @@ internal fun RainDepartmentApp(
                         isStale = weatherState.isStale,
                         errorMessage = weatherState.errorMessage,
                         onRefresh = refreshForecast,
+                        onLocationClick = { isCityPickerVisible = true },
                     )
                 } ?: BriefingUnavailableScreen(
                     isRefreshing = weatherState.isRefreshing,
@@ -291,6 +325,21 @@ internal fun RainDepartmentApp(
         }
     }
 
+    if (isCityPickerVisible) {
+        CityPickerDialog(
+            selectedLocation = selectedCityLocation,
+            onSelect = { location ->
+                isCityPickerVisible = false
+                selectCity(location)
+            },
+            onUseCurrentLocation = {
+                isCityPickerVisible = false
+                refreshLocation()
+            },
+            onDismiss = { isCityPickerVisible = false },
+        )
+    }
+
     if (activity != null) {
         UpdateDialog(
             state = updateState,
@@ -310,64 +359,188 @@ internal fun RainDepartmentApp(
 private fun RainDepartmentHeader(
     onRefresh: () -> Unit,
     onRefreshLocation: () -> Unit,
+    onChooseCity: () -> Unit,
     isRefreshing: Boolean,
 ) {
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(70.dp)
             .background(
                 Brush.verticalGradient(
                     listOf(Color(0xFF2395F1), Color(0xFF39A8F2)),
                 ),
-            )
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            ),
     ) {
-        IconButton(onClick = {}) {
-            Icon(
-                imageVector = Icons.Outlined.Menu,
-                contentDescription = "Open menu",
-                tint = Color.White,
-                modifier = Modifier.size(27.dp),
-            )
-        }
-        Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Cloud,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(30.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Rain Department",
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        IconButton(onClick = onRefresh, enabled = !isRefreshing) {
-            Icon(
-                imageVector = Icons.Outlined.Refresh,
-                contentDescription = "Refresh forecast",
-                tint = Color.White.copy(alpha = if (isRefreshing) 0.55f else 1f),
-                modifier = Modifier.size(27.dp),
-            )
-        }
-        IconButton(onClick = onRefreshLocation, enabled = !isRefreshing) {
-            Icon(
-                imageVector = Icons.Outlined.LocationOn,
-                contentDescription = "Use current location",
-                tint = Color.White,
-                modifier = Modifier.size(27.dp),
-            )
+        Column(modifier = Modifier.statusBarsPadding()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .padding(horizontal = 8.dp),
+            ) {
+                IconButton(
+                    onClick = onChooseCity,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.LocationCity,
+                        contentDescription = "Choose city",
+                        tint = Color.White,
+                        modifier = Modifier.size(27.dp),
+                    )
+                }
+                Row(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Cloud,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(30.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Rain Department",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onRefresh, enabled = !isRefreshing) {
+                        Icon(
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = "Refresh forecast",
+                            tint = Color.White.copy(alpha = if (isRefreshing) 0.55f else 1f),
+                            modifier = Modifier.size(27.dp),
+                        )
+                    }
+                    IconButton(onClick = onRefreshLocation, enabled = !isRefreshing) {
+                        Icon(
+                            imageVector = Icons.Outlined.GpsFixed,
+                            contentDescription = "Use approximate location",
+                            tint = Color.White,
+                            modifier = Modifier.size(27.dp),
+                        )
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun CityPickerDialog(
+    selectedLocation: WeatherLocation?,
+    onSelect: (WeatherLocation) -> Unit,
+    onUseCurrentLocation: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val cities = WeatherCities.search(query)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose a city") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Search cities") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = null,
+                        )
+                    },
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                TextButton(
+                    onClick = onUseCurrentLocation,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.GpsFixed,
+                        contentDescription = null,
+                        tint = AccentBlue,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.Start,
+                    ) {
+                        Text("Use approximate location", color = DeepBlue)
+                        Text(
+                            "Ask the device for your current city",
+                            color = MutedNavy,
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    if (cities.isEmpty()) {
+                        Text(
+                            text = "No matching cities",
+                            modifier = Modifier.padding(vertical = 12.dp),
+                            color = MutedNavy,
+                            fontSize = 13.sp,
+                        )
+                    } else {
+                        cities.forEach { city ->
+                            val isSelected = selectedLocation == city.location
+                            TextButton(
+                                onClick = { onSelect(city.location) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = city.label,
+                                        modifier = Modifier.weight(1f),
+                                        color = if (isSelected) AccentBlue else DeepBlue,
+                                        fontWeight = if (isSelected) {
+                                            FontWeight.Bold
+                                        } else {
+                                            FontWeight.Normal
+                                        },
+                                    )
+                                    if (isSelected) {
+                                        Text(
+                                            text = "Selected",
+                                            color = AccentBlue,
+                                            fontSize = 10.sp,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable
@@ -378,7 +551,8 @@ private fun RainDepartmentBottomNavigation(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White),
+            .background(Color.White)
+            .navigationBarsPadding(),
     ) {
         Box(
             modifier = Modifier
@@ -442,6 +616,7 @@ private fun BriefingScreen(
     isStale: Boolean,
     errorMessage: String?,
     onRefresh: () -> Unit,
+    onLocationClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -462,6 +637,7 @@ private fun BriefingScreen(
             forecast = forecast,
             unitSystem = unitSystem,
             backgroundWeather = backgroundWeather,
+            onLocationClick = onLocationClick,
         )
         ForecastRangeSelector(
             selected = selectedRange,
@@ -557,7 +733,7 @@ private fun WeatherStatusBanner(
             Text(
                 text = when {
                     isRefreshing -> "Updating live weather…"
-                    errorMessage != null -> "Showing the last successful forecast."
+                    errorMessage != null -> errorMessage
                     isStale -> "This forecast is more than six hours old."
                     else -> "Live weather updated."
                 },
@@ -591,6 +767,7 @@ private fun WeatherHeroCard(
     forecast: DashboardForecast,
     unitSystem: UnitSystem,
     backgroundWeather: CurrentWeather,
+    onLocationClick: () -> Unit,
 ) {
     val context = LocalContext.current
     val bitmap = remember(context, backgroundWeather.condition, backgroundWeather.isDay) {
@@ -634,7 +811,10 @@ private fun WeatherHeroCard(
                         .fillMaxSize()
                         .padding(horizontal = 18.dp, vertical = 14.dp),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.clickable(onClick = onLocationClick),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Icon(
                             imageVector = Icons.Outlined.LocationOn,
                             contentDescription = null,
