@@ -6,20 +6,6 @@ import android.graphics.BitmapFactory
 import androidx.annotation.DrawableRes
 import androidx.glance.ImageProvider
 
-private data class BackplateSheet(
-    @DrawableRes val resourceId: Int,
-    val dayIndex: Int,
-    val nightIndex: Int,
-    val crops: List<BackplateCrop>,
-)
-
-private data class BackplateCrop(
-    val top: Int,
-    val bottom: Int,
-) {
-    val height: Int get() = bottom - top
-}
-
 internal data class BackplateChoice(
     val condition: WeatherCondition,
     val isDay: Boolean,
@@ -57,186 +43,35 @@ internal val BackplateChoices = listOf(
     BackplateChoice(WeatherCondition.SEVERE_WEATHER, false, "Severe weather — Night"),
 )
 
-// The source sheets contain four generated cards with inconsistent heights and
-// vertical positions. Keep the visible-art bounds per sheet, then normalize
-// every extracted card before the widget applies its own size-dependent crop.
 private object BackplateCatalog {
-    fun sheetFor(condition: WeatherCondition): BackplateSheet = when (condition) {
-        WeatherCondition.CLEAR -> backplateSheet(
-            R.drawable.backplate_clear,
-            0,
-            1,
-            crop(70, 330),
-            crop(397, 655),
-            crop(722, 950),
-            crop(1016, 1242),
-        )
-        WeatherCondition.MOSTLY_CLEAR -> backplateSheet(
-            R.drawable.backplate_clear,
-            2,
-            3,
-            crop(70, 330),
-            crop(397, 655),
-            crop(722, 950),
-            crop(1016, 1242),
-        )
-        WeatherCondition.PARTLY_CLOUDY -> backplateSheet(
-            R.drawable.backplate_clouds,
-            0,
-            1,
-            crop(69, 332),
-            crop(397, 664),
-            crop(730, 967),
-            crop(1031, 1248),
-        )
-        WeatherCondition.OVERCAST -> backplateSheet(
-            R.drawable.backplate_clouds,
-            2,
-            3,
-            crop(69, 332),
-            crop(397, 664),
-            crop(730, 967),
-            crop(1031, 1248),
-        )
-        WeatherCondition.FOG -> backplateSheet(
-            R.drawable.backplate_fog,
-            0,
-            1,
-            crop(69, 335),
-            crop(401, 664),
-            crop(729, 964),
-            crop(1028, 1248),
-        )
-        WeatherCondition.ATMOSPHERIC_HAZE -> backplateSheet(
-            R.drawable.backplate_fog,
-            2,
-            3,
-            crop(69, 335),
-            crop(401, 664),
-            crop(729, 964),
-            crop(1028, 1248),
-        )
-        WeatherCondition.DRIZZLE -> backplateSheet(
-            R.drawable.backplate_drizzle,
-            0,
-            1,
-            crop(69, 333),
-            crop(402, 661),
-            crop(730, 971),
-            crop(1037, 1244),
-        )
-        WeatherCondition.RAIN -> backplateSheet(
-            R.drawable.backplate_drizzle,
-            2,
-            3,
-            crop(69, 333),
-            crop(402, 661),
-            crop(730, 971),
-            crop(1037, 1244),
-        )
-        WeatherCondition.HEAVY_RAIN -> backplateSheet(
-            R.drawable.backplate_rain,
-            0,
-            1,
-            crop(65, 334),
-            crop(400, 662),
-            crop(731, 981),
-            crop(1042, 1263),
-        )
-        WeatherCondition.THUNDERSTORM -> backplateSheet(
-            R.drawable.backplate_rain,
-            2,
-            3,
-            crop(65, 334),
-            crop(400, 662),
-            crop(731, 981),
-            crop(1042, 1263),
-        )
-        WeatherCondition.SNOW -> backplateSheet(
-            R.drawable.backplate_snow,
-            0,
-            1,
-            crop(64, 345),
-            crop(409, 686),
-            crop(756, 993),
-            crop(1054, 1250),
-        )
-        WeatherCondition.HEAVY_SNOW -> backplateSheet(
-            R.drawable.backplate_snow,
-            2,
-            3,
-            crop(64, 345),
-            crop(409, 686),
-            crop(756, 993),
-            crop(1054, 1250),
-        )
-        WeatherCondition.WINTRY_MIX -> backplateSheet(
-            R.drawable.backplate_winter_mix,
-            0,
-            1,
-            crop(70, 347),
-            crop(410, 685),
-            crop(749, 992),
-            crop(1049, 1253),
-        )
-        WeatherCondition.SEVERE_WEATHER -> backplateSheet(
-            R.drawable.backplate_winter_mix,
-            2,
-            3,
-            crop(70, 347),
-            crop(410, 685),
-            crop(749, 992),
-            crop(1049, 1253),
-        )
+    @DrawableRes
+    fun resourceFor(condition: WeatherCondition, isDay: Boolean): Int = when (condition) {
+        WeatherCondition.CLEAR -> if (isDay) R.drawable.backplate_clear_day else R.drawable.backplate_clear_night
+        WeatherCondition.MOSTLY_CLEAR -> if (isDay) R.drawable.backplate_mostly_clear_day else R.drawable.backplate_mostly_clear_night
+        WeatherCondition.PARTLY_CLOUDY -> if (isDay) R.drawable.backplate_partly_cloudy_day else R.drawable.backplate_partly_cloudy_night
+        WeatherCondition.OVERCAST -> if (isDay) R.drawable.backplate_overcast_day else R.drawable.backplate_overcast_night
+        WeatherCondition.FOG -> if (isDay) R.drawable.backplate_fog_day else R.drawable.backplate_fog_night
+        WeatherCondition.ATMOSPHERIC_HAZE -> if (isDay) R.drawable.backplate_atmospheric_haze_day else R.drawable.backplate_atmospheric_haze_night
+        WeatherCondition.DRIZZLE -> if (isDay) R.drawable.backplate_drizzle_day else R.drawable.backplate_drizzle_night
+        WeatherCondition.RAIN -> if (isDay) R.drawable.backplate_rain_day else R.drawable.backplate_rain_night
+        WeatherCondition.HEAVY_RAIN -> if (isDay) R.drawable.backplate_heavy_rain_day else R.drawable.backplate_heavy_rain_night
+        WeatherCondition.THUNDERSTORM -> if (isDay) R.drawable.backplate_thunderstorm_day else R.drawable.backplate_thunderstorm_night
+        WeatherCondition.SNOW -> if (isDay) R.drawable.backplate_snow_day else R.drawable.backplate_snow_night
+        WeatherCondition.HEAVY_SNOW -> if (isDay) R.drawable.backplate_heavy_snow_day else R.drawable.backplate_heavy_snow_night
+        WeatherCondition.WINTRY_MIX -> if (isDay) R.drawable.backplate_wintry_mix_day else R.drawable.backplate_wintry_mix_night
+        WeatherCondition.SEVERE_WEATHER -> if (isDay) R.drawable.backplate_severe_weather_day else R.drawable.backplate_severe_weather_night
     }
 }
 
-private fun backplateSheet(
-    @DrawableRes resourceId: Int,
-    dayIndex: Int,
-    nightIndex: Int,
-    vararg crops: BackplateCrop,
-): BackplateSheet = BackplateSheet(
-    resourceId = resourceId,
-    dayIndex = dayIndex,
-    nightIndex = nightIndex,
-    crops = crops.toList(),
-)
-
-private fun crop(top: Int, bottom: Int): BackplateCrop = BackplateCrop(top, bottom)
-
 internal object BackplateLoader {
-    private const val CROP_LEFT = 50
-    private const val CROP_WIDTH = 860
-    private const val OUTPUT_WIDTH = 860
-    private const val OUTPUT_HEIGHT = 235
-
     fun imageProvider(context: Context, weather: DummyWeather): ImageProvider =
         ImageProvider(bitmap(context, weather))
 
-    fun bitmap(context: Context, weather: DummyWeather): Bitmap {
-        val sheet = BackplateCatalog.sheetFor(weather.condition)
-        val source = BitmapFactory.decodeResource(context.resources, sheet.resourceId)
-            ?: error("Unable to load weather backplate ${sheet.resourceId}")
-        val index = if (weather.isDay) sheet.dayIndex else sheet.nightIndex
-        val crop = sheet.crops[index]
-        val top = crop.top.coerceIn(0, source.height - 1)
-        val left = CROP_LEFT.coerceIn(0, source.width - 1)
-        val width = CROP_WIDTH.coerceAtMost(source.width - left)
-        val height = crop.height.coerceAtMost(source.height - top)
-        val cropped = Bitmap.createBitmap(source, left, top, width, height)
-        source.recycle()
-        val normalized = Bitmap.createScaledBitmap(
-            cropped,
-            OUTPUT_WIDTH,
-            OUTPUT_HEIGHT,
-            true,
-        )
-        if (normalized !== cropped) {
-            cropped.recycle()
-        }
-        return normalized
-    }
+    fun bitmap(context: Context, weather: DummyWeather): Bitmap =
+        BitmapFactory.decodeResource(
+            context.resources,
+            BackplateCatalog.resourceFor(weather.condition, weather.isDay),
+        ) ?: error("Unable to load weather backplate for ${weather.condition} / ${weather.isDay}")
 }
 
 internal fun DummyWeather.forBackplate(choice: BackplateChoice): DummyWeather = copy(
