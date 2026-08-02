@@ -146,7 +146,8 @@ internal fun RainDepartmentApp(
     requestLocationPermission: Boolean = true,
     checkForUpdates: Boolean = true,
     updateWidget: Boolean = true,
-    useNativeBriefingScrollCapture: Boolean = true,
+    // Android ScrollView does not participate in PullToRefreshBox's nested scroll chain.
+    useNativeBriefingScrollCapture: Boolean = false,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity

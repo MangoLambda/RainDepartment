@@ -92,6 +92,21 @@ private val WidgetUnavailableBackground = ColorProvider(
     night = Color(0xFFDDEBF6),
 )
 
+private const val WIDGET_LOCATION_LINE_LIMIT = 10
+
+internal fun widgetLocationLabel(location: String): String = location
+    .split(',', limit = 2)
+    .map(String::trim)
+    .filter { it.isNotEmpty() }
+    .take(2)
+    .joinToString("\n") { line ->
+        if (line.length <= WIDGET_LOCATION_LINE_LIMIT) {
+            line
+        } else {
+            line.take(WIDGET_LOCATION_LINE_LIMIT - 1).trimEnd() + "…"
+        }
+    }
+
 @androidx.compose.runtime.Composable
 private fun WeatherWidgetUnavailable() {
     Box(
@@ -158,7 +173,7 @@ private fun WeatherWidgetContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Leave the illustrated left side clean; weather details start after it.
-            Spacer(modifier = GlanceModifier.width(64.dp))
+            Spacer(modifier = GlanceModifier.width(56.dp))
             Spacer(
                 modifier = GlanceModifier
                     .width(1.dp)
@@ -172,9 +187,9 @@ private fun WeatherWidgetContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = GlanceModifier.width(66.dp)) {
+                    Column(modifier = GlanceModifier.width(74.dp)) {
                         Text(
-                            text = weather.location,
+                            text = widgetLocationLabel(weather.location),
                             style = TextStyle(
                                 color = WidgetWhite,
                                 fontSize = 14.sp,
