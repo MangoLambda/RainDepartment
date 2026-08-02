@@ -89,9 +89,11 @@ internal class WeatherRepository(
             val savedLocation = preferredLocation()
             val location = when {
                 locationOverride != null -> locationOverride
-                savedLocation != null -> savedLocation
                 updateLocation -> locationProvider.currentOrNull()
+                    ?: savedLocation
+                    ?: previous?.location
                     ?: throw LocationUnavailableException()
+                savedLocation != null -> savedLocation
                 previous != null -> previous.location
                 else -> locationProvider.currentOrNull()
                     ?: throw LocationUnavailableException()

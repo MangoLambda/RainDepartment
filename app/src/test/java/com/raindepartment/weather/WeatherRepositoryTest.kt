@@ -83,6 +83,55 @@ class WeatherRepositoryTest {
     }
 
     @Test
+    fun unavailableCurrentLocationFallsBackToPreferredCity() = runBlocking {
+        val city = WeatherCity("Denver, Colorado", 39.7392, -104.9903).location
+        var requestedLocation: WeatherLocation? = null
+        val repository = WeatherRepository(
+            client = object : GemWeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather {
+                    requestedLocation = location
+                    return ParsedGemWeather(DashboardForecastTestData.forecast, "America/Denver")
+                }
+            },
+            cache = FakeCache(),
+            locationProvider = object : WeatherLocationProvider {
+                override suspend fun currentOrNull(): WeatherLocation? = null
+            },
+            preferredLocation = { city },
+        )
+
+        val result = repository.refresh(force = true, updateLocation = true)
+
+        assertTrue(result is RefreshResult.Updated)
+        assertEquals(city, requestedLocation)
+        assertEquals(city, repository.state.value.snapshot?.location)
+    }
+
+    @Test
+    fun availableCurrentLocationStillWinsOverPreferredCity() = runBlocking {
+        val city = WeatherCity("Denver, Colorado", 39.7392, -104.9903).location
+        var requestedLocation: WeatherLocation? = null
+        val repository = WeatherRepository(
+            client = object : GemWeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather {
+                    requestedLocation = location
+                    return ParsedGemWeather(DashboardForecastTestData.forecast, "America/Chicago")
+                }
+            },
+            cache = FakeCache(),
+            locationProvider = object : WeatherLocationProvider {
+                override suspend fun currentOrNull(): WeatherLocation = AustinLocation
+            },
+            preferredLocation = { city },
+        )
+
+        val result = repository.refresh(force = true, updateLocation = true)
+
+        assertTrue(result is RefreshResult.Updated)
+        assertEquals(AustinLocation, requestedLocation)
+    }
+
+    @Test
     fun explicitCityLocationIsUsedForRefresh() = runBlocking {
         val city = WeatherCity("Denver, Colorado", 39.7392, -104.9903)
         var requestedLocation: WeatherLocation? = null

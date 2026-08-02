@@ -189,16 +189,31 @@ internal fun RainDepartmentApp(
         mutableStateOf(WeatherPreferences.selectedLocation(context))
     }
     var isCityPickerVisible by rememberSaveable { mutableStateOf(false) }
+    val clearSelectedCityIfCurrentLocationUsed: (RefreshResult, WeatherLocation?) -> Unit =
+        { result, fallbackLocation ->
+            if (result is RefreshResult.Updated &&
+                fallbackLocation != null &&
+                result.snapshot.location != fallbackLocation &&
+                selectedCityLocation == fallbackLocation
+            ) {
+                selectedCityLocation = null
+                WeatherPreferences.clearSelectedLocation(context)
+            }
+        }
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) { permissions ->
         val preciseGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val fallbackLocation = selectedCityLocation
         weatherScope.launch {
-            weatherRepository.refresh(
+            val result = weatherRepository.refresh(
                 force = true,
-                updateLocation = preciseGranted && selectedCityLocation == null,
-                locationOverride = selectedCityLocation,
+                updateLocation = preciseGranted,
+                locationOverride = if (preciseGranted) null else fallbackLocation,
             )
+            if (preciseGranted) {
+                clearSelectedCityIfCurrentLocationUsed(result, fallbackLocation)
+            }
         }
     }
     var notificationPermissionRequested by rememberSaveable { mutableStateOf(false) }
@@ -247,11 +262,11 @@ internal fun RainDepartmentApp(
         }
     }
     val refreshLocation: () -> Unit = {
-        selectedCityLocation = null
-        WeatherPreferences.clearSelectedLocation(context)
         if (context.hasPreciseLocationPermission()) {
+            val fallbackLocation = selectedCityLocation
             weatherScope.launch {
-                weatherRepository.refresh(force = true, updateLocation = true)
+                val result = weatherRepository.refresh(force = true, updateLocation = true)
+                clearSelectedCityIfCurrentLocationUsed(result, fallbackLocation)
             }
         } else {
             locationPermissionLauncher.launch(
@@ -408,7 +423,7 @@ internal fun RainDepartmentApp(
                 )
 
                 DashboardTab.RADAR -> RadarScreen(
-                    location = weatherState.snapshot?.location ?: selectedCityLocation,
+                    location = selectedCityLocation ?: weatherState.snapshot?.location,
                     forecast = weatherState.snapshot?.forecast,
                     radarClient = radarMapClient,
                 )
