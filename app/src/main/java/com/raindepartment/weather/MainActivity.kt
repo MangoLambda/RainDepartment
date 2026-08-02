@@ -2367,6 +2367,7 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
 }
 
 private const val TIMELINE_RADAR_HALF_WINDOW_MILLIS = 60 * 60_000L
+private const val TIMELINE_INTENSITY_MINIMUM_AXIS_MAXIMUM_MILLIMETERS_PER_HOUR = 0.5f
 
 private data class TimelineIntensityPoint(
     val timeEpochMillis: Long,
@@ -2402,9 +2403,12 @@ internal fun timelineIntensityScale(valuesMillimetersPerHour: List<Float>): Time
         .maxOrNull()
         ?: 0f
     val axisMaximum = if (maximum > 0f) {
-        timelineIntensityNiceAxisMaximum(maximum)
+        maxOf(
+            TIMELINE_INTENSITY_MINIMUM_AXIS_MAXIMUM_MILLIMETERS_PER_HOUR,
+            timelineIntensityNiceAxisMaximum(maximum),
+        )
     } else {
-        1f
+        TIMELINE_INTENSITY_MINIMUM_AXIS_MAXIMUM_MILLIMETERS_PER_HOUR
     }
     return TimelineIntensityScale(
         maximumMillimetersPerHour = axisMaximum,
@@ -3279,7 +3283,7 @@ private fun timelineIntensityBarModifier(
 ): Modifier {
     val color = when (band) {
         TimelineIntensityBand.NONE -> Color(0xFFD7E4ED)
-        TimelineIntensityBand.LIGHT -> Color(0xFF9CCFF3)
+        TimelineIntensityBand.LIGHT -> Color(0xFFB9DDF5)
         TimelineIntensityBand.MODERATE -> Color(0xFF4B9FDF)
         TimelineIntensityBand.HEAVY -> Color(0xFF176FC1)
     }
@@ -3302,7 +3306,7 @@ private fun TimelineIntensityLegend() {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TimelineIntensityLegendItem("None", Color(0xFFD7E4ED))
-        TimelineIntensityLegendItem("Light", Color(0xFF9CCFF3))
+        TimelineIntensityLegendItem("Light", Color(0xFFB9DDF5))
         TimelineIntensityLegendItem("Moderate", Color(0xFF4B9FDF))
         TimelineIntensityLegendItem("Heavy", Color(0xFF176FC1))
     }

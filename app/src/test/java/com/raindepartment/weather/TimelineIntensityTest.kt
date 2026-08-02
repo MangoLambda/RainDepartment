@@ -22,8 +22,16 @@ class TimelineIntensityTest {
         assertEquals(0.5f, scale.midpointMillimetersPerHour)
 
         val dryScale = timelineIntensityScale(listOf(0f, 0f))
-        assertEquals(1f, dryScale.maximumMillimetersPerHour)
-        assertEquals(0.5f, dryScale.midpointMillimetersPerHour)
+        assertEquals(0.5f, dryScale.maximumMillimetersPerHour)
+        assertEquals(0.25f, dryScale.midpointMillimetersPerHour)
+    }
+
+    @Test
+    fun scaleUsesHalfMillimeterMinimumForTraceRain() {
+        val scale = timelineIntensityScale(listOf(0.05f, 0.02f))
+
+        assertEquals(0.5f, scale.maximumMillimetersPerHour)
+        assertEquals(0.25f, scale.midpointMillimetersPerHour)
     }
 
     @Test
