@@ -179,6 +179,20 @@ internal fun HourlyForecast.windSpeed(unitSystem: UnitSystem): String {
 }
 
 internal const val RADAR_RAIN_WINDOW_MINUTES = 3 * 60L
+internal const val RADAR_MEANINGFUL_RATE_MM_PER_HOUR = 0.1
+internal const val RADAR_MODERATE_RATE_MM_PER_HOUR = 2.5
+internal const val RADAR_HEAVY_RATE_MM_PER_HOUR = 7.6
+
+internal fun radarConditionForRainRate(rateMillimetersPerHour: Double): Pair<WeatherCondition, String>? {
+    val rate = rateMillimetersPerHour.takeIf { it.isFinite() } ?: return null
+    if (rate < RADAR_MEANINGFUL_RATE_MM_PER_HOUR) return null
+
+    return when {
+        rate >= RADAR_HEAVY_RATE_MM_PER_HOUR -> WeatherCondition.HEAVY_RAIN to "Heavy rain"
+        rate >= RADAR_MODERATE_RATE_MM_PER_HOUR -> WeatherCondition.RAIN to "Rain"
+        else -> WeatherCondition.DRIZZLE to "Drizzle"
+    }
+}
 
 internal fun DashboardForecast.rainStartMinutesFromNow(nowEpochMillis: Long): Long? {
     val startsAt = rainStartsAtEpochMillis ?: return null
@@ -197,7 +211,12 @@ internal fun DashboardForecast.isRadarRainStartWithinWindow(nowEpochMillis: Long
 
 internal fun DashboardForecast.radarRainStartText(nowEpochMillis: Long): String? {
     if (!isRadarRainStartWithinWindow(nowEpochMillis)) return null
-    return "rain starts, in ${formatRainStartCountdown(rainStartMinutesFromNow(nowEpochMillis) ?: 0L)}"
+    val minutes = rainStartMinutesFromNow(nowEpochMillis) ?: 0L
+    return if (minutes == 0L) {
+        "rain is falling now"
+    } else {
+        "rain starts, in ${formatRainStartCountdown(minutes)}"
+    }
 }
 
 internal fun formatRainStartCountdown(totalMinutes: Long): String {

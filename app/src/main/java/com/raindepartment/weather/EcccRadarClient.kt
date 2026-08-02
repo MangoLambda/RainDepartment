@@ -29,6 +29,7 @@ internal data class EcccRadarTimeWindow(
 internal data class EcccRadarRainStart(
     val startsAtEpochMillis: Long,
     val confidenceMeaningful: Boolean,
+    val currentRateMillimetersPerHour: Double? = null,
 )
 
 internal data class EcccRadarRainRatePoint(
@@ -175,6 +176,16 @@ internal class HttpEcccRadarClient(
         nowEpochMillis: Long,
     ): EcccRadarRainStart? = withContext(Dispatchers.IO) {
         val window = fetchTimeWindow()
+        val latestFrameTime = latestEcccRadarFrameTime(window, nowEpochMillis)
+        val latestRate = fetchRainRate(location, latestFrameTime)
+        if (latestRate != null && latestRate >= RADAR_MEANINGFUL_RATE_MM_PER_HOUR) {
+            return@withContext EcccRadarRainStart(
+                startsAtEpochMillis = latestFrameTime,
+                confidenceMeaningful = true,
+                currentRateMillimetersPerHour = latestRate,
+            )
+        }
+
         val firstTime = firstEcccRadarFrameTime(
             window = window,
             value = max(window.startEpochMillis, nowEpochMillis),
@@ -435,7 +446,6 @@ internal class HttpEcccRadarClient(
     }
 
     private companion object {
-        const val RADAR_MEANINGFUL_RATE_MM_PER_HOUR = 0.1
         const val MEANINGFUL_FRAME_COUNT = 2
     }
 }

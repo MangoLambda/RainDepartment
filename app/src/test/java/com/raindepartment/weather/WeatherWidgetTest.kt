@@ -5,11 +5,11 @@ import org.junit.Test
 
 class WeatherWidgetTest {
     @Test
-    fun widgetWeatherUsesTodayForecastWhileKeepingCurrentTemperature() {
+    fun widgetWeatherUsesCurrentConditionWhileKeepingTodayHighAndLow() {
         val weather = DashboardForecastTestData.forecast.widgetWeather()
 
-        assertEquals(WeatherCondition.RAIN, weather.condition)
-        assertEquals("Rain", weather.conditionLabel)
+        assertEquals(WeatherCondition.PARTLY_CLOUDY, weather.condition)
+        assertEquals("Partly cloudy", weather.conditionLabel)
         assertEquals(84, weather.currentFahrenheit)
         assertEquals(89, weather.highFahrenheit)
         assertEquals(73, weather.lowFahrenheit)

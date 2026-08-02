@@ -191,6 +191,59 @@ class WeatherRepositoryTest {
         assertTrue(forecast.rainStartConfidenceMeaningful)
     }
 
+    @Test
+    fun currentRadarRainOverridesModelConditionAndCurrentHourlyLabel() = runBlocking {
+        val now = 10_000L
+        val modelForecast = DashboardForecastTestData.forecast.copy(
+            condition = WeatherCondition.DRIZZLE,
+            conditionLabel = "Drizzle",
+            rainStartsAtEpochMillis = now + 2 * 60 * 60 * 1_000L,
+            rainStartSource = RainStartSource.MODEL,
+            hourly = listOf(
+                HourlyForecast(
+                    time = "Now",
+                    precipitationChance = 30,
+                    rainfallInches = 0.01,
+                    temperatureFahrenheit = 84,
+                    windMph = 8,
+                    windDirection = "N",
+                    windDirectionLabel = "N",
+                    condition = WeatherCondition.DRIZZLE,
+                    conditionLabel = "Drizzle",
+                ),
+            ),
+        )
+        val repository = WeatherRepository(
+            client = object : GemWeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(modelForecast, "America/Chicago")
+            },
+            cache = FakeCache(),
+            locationProvider = FakeLocationProvider(),
+            clock = { now },
+            radarClient = object : EcccRadarClient {
+                override suspend fun findRainStart(
+                    location: WeatherLocation,
+                    nowEpochMillis: Long,
+                ): EcccRadarRainStart = EcccRadarRainStart(
+                    startsAtEpochMillis = now - 6 * 60_000L,
+                    confidenceMeaningful = true,
+                    currentRateMillimetersPerHour = 8.0,
+                )
+            },
+        )
+
+        val result = repository.refresh(force = true)
+
+        assertTrue(result is RefreshResult.Updated)
+        val forecast = repository.state.value.snapshot!!.forecast
+        assertEquals(WeatherCondition.HEAVY_RAIN, forecast.condition)
+        assertEquals("Heavy rain", forecast.conditionLabel)
+        assertEquals("Now", forecast.rainStartsIn)
+        assertEquals(WeatherCondition.HEAVY_RAIN, forecast.hourly.first().condition)
+        assertEquals("Heavy rain", forecast.hourly.first().conditionLabel)
+    }
+
     private class FakeCache(var value: WeatherSnapshot? = null) : WeatherCache {
         override fun read(): WeatherSnapshot? = value
         override fun write(snapshot: WeatherSnapshot) {

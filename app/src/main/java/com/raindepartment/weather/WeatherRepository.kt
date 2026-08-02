@@ -142,8 +142,10 @@ internal class WeatherRepository(
         location: WeatherLocation,
         nowEpochMillis: Long,
     ): DashboardForecast {
-        val modelRainStart = forecast.rainStartsAtEpochMillis ?: return forecast
-        if (modelRainStart > nowEpochMillis + RADAR_RAIN_WINDOW_MINUTES * 60_000L) {
+        val modelRainStart = forecast.rainStartsAtEpochMillis
+        if (modelRainStart == null ||
+            modelRainStart > nowEpochMillis + RADAR_RAIN_WINDOW_MINUTES * 60_000L
+        ) {
             return forecast
         }
 
@@ -155,11 +157,36 @@ internal class WeatherRepository(
             null
         } ?: return forecast
 
+        val radarCondition = radarRainStart.currentRateMillimetersPerHour
+            ?.let(::radarConditionForRainRate)
+        val hourly = if (radarCondition == null) {
+            forecast.hourly
+        } else {
+            forecast.hourly.mapIndexed { index, hour ->
+                if (index == 0 || hour.time.equals("Now", ignoreCase = true)) {
+                    hour.copy(
+                        condition = radarCondition.first,
+                        conditionLabel = radarCondition.second,
+                    )
+                } else {
+                    hour
+                }
+            }
+        }
+
+        val radarRainStartMinutes =
+            ((radarRainStart.startsAtEpochMillis - nowEpochMillis + 59_999L) / 60_000L)
+                .coerceAtLeast(0L)
+
         return forecast.copy(
-            rainStartsIn = formatRainStartCountdown(
-                ((radarRainStart.startsAtEpochMillis - nowEpochMillis + 59_999L) / 60_000L)
-                    .coerceAtLeast(0L),
-            ),
+            condition = radarCondition?.first ?: forecast.condition,
+            conditionLabel = radarCondition?.second ?: forecast.conditionLabel,
+            rainStartsIn = if (radarRainStartMinutes == 0L) {
+                "Now"
+            } else {
+                formatRainStartCountdown(radarRainStartMinutes)
+            },
+            hourly = hourly,
             rainStartsAtEpochMillis = radarRainStart.startsAtEpochMillis,
             rainStartSource = RainStartSource.ECCC_RADAR,
             rainStartConfidenceMeaningful = radarRainStart.confidenceMeaningful,

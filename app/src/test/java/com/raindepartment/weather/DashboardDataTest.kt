@@ -64,6 +64,33 @@ class DashboardDataTest {
         assertEquals("1 hour, 5 minutes", formatRainStartCountdown(65))
     }
 
+    @Test
+    fun radarRainStartTextSaysWhenRainIsAlreadyFalling() {
+        val now = 1_000_000L
+        val forecast = testForecast().copy(
+            rainStartsAtEpochMillis = now - 1L,
+            rainStartSource = RainStartSource.ECCC_RADAR,
+        )
+
+        assertEquals("rain is falling now", forecast.radarRainStartText(now))
+    }
+
+    @Test
+    fun radarRateMapsToCurrentConditionIntensity() {
+        assertEquals(
+            WeatherCondition.DRIZZLE to "Drizzle",
+            radarConditionForRainRate(0.1),
+        )
+        assertEquals(
+            WeatherCondition.RAIN to "Rain",
+            radarConditionForRainRate(2.5),
+        )
+        assertEquals(
+            WeatherCondition.HEAVY_RAIN to "Heavy rain",
+            radarConditionForRainRate(7.6),
+        )
+    }
+
     private fun testForecast() = DashboardForecast(
         location = "Austin, Texas",
         condition = WeatherCondition.PARTLY_CLOUDY,

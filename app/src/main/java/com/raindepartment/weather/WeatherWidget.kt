@@ -106,15 +106,9 @@ internal fun widgetLocationLabel(location: String): String = location
 
 internal fun DashboardForecast.widgetWeather(): CurrentWeather {
     val today = daily.firstOrNull()
-    return CurrentWeather(
-        location = location,
-        condition = today?.condition ?: condition,
-        conditionLabel = today?.conditionLabel ?: conditionLabel,
-        isDay = isDay,
-        currentFahrenheit = currentFahrenheit,
+    return currentWeather().copy(
         highFahrenheit = today?.highFahrenheit ?: highFahrenheit,
         lowFahrenheit = today?.lowFahrenheit ?: lowFahrenheit,
-        precipitationChance = today?.precipitationChance ?: precipitationChance,
     )
 }
 

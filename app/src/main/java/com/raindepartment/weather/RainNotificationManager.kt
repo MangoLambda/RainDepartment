@@ -62,7 +62,13 @@ internal object RainNotificationManager {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_precipitation)
-            .setContentTitle("Rain starts in ${formatRainStartCountdown(startsInMinutes)}")
+            .setContentTitle(
+                if (startsInMinutes == 0L) {
+                    "Rain is falling now"
+                } else {
+                    "Rain starts in ${formatRainStartCountdown(startsInMinutes)}"
+                },
+            )
             .setContentText("${forecast.location} · ECCC radar nowcast is meaningful")
             .setContentIntent(openAppIntent)
             .setAutoCancel(true)

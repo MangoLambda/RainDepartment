@@ -3638,7 +3638,11 @@ private fun WeatherHeroCard(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Rain starts in",
+                        text = if (forecast.rainStartsIn.equals("Now", ignoreCase = true)) {
+                            "Rain is falling"
+                        } else {
+                            "Rain starts in"
+                        },
                         color = Navy,
                         fontSize = 28.sp,
                         lineHeight = 30.sp,
