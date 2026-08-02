@@ -1227,7 +1227,7 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
                 val deltaY = event.y - pullStartY
                 val deltaX = event.x - pullStartX
                 pullDistance = if (deltaY > 0f && deltaY > abs(deltaX)) deltaY else 0f
-                composeView.translationY = pullDistance
+                composeView.translationY = pullDistance * PULL_DRAG_MULTIPLIER
             }
 
             MotionEvent.ACTION_UP -> {
@@ -1267,6 +1267,7 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
 
     private companion object {
         const val PULL_TO_REFRESH_DISTANCE_DP = 64f
+        const val PULL_DRAG_MULTIPLIER = 0.5f
         const val PULL_RELEASE_ANIMATION_MS = 180L
     }
 }
