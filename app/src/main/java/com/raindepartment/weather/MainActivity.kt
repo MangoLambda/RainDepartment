@@ -50,6 +50,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.AcUnit
 import androidx.compose.material.icons.outlined.Air
@@ -66,6 +67,7 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.LocationCity
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
@@ -121,6 +123,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -131,6 +134,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -1228,7 +1232,9 @@ private fun DashboardTab.icon(): ImageVector = when (this) {
 }
 
 private const val RADAR_SCREEN_REFRESH_INTERVAL_MILLIS = 6 * 60_000L
-private const val RADAR_VIEWPORT_REQUEST_DEBOUNCE_MILLIS = 250L
+private const val RADAR_VIEWPORT_REQUEST_DEBOUNCE_MILLIS = 350L
+internal const val RADAR_MIN_GESTURE_SCALE = 0.02f
+internal const val RADAR_MAX_GESTURE_SCALE = 50f
 
 private data class RadarUiState(
     val window: EcccRadarTimeWindow? = null,
@@ -1269,7 +1275,9 @@ private fun RadarScreen(
             activeViewport = cached.viewport ?: defaultViewport
             state = RadarUiState(
                 window = cached.window,
-                frame = cached.frame,
+                frame = cached.frame.copy(
+                    viewport = cached.frame.viewport ?: cached.viewport ?: defaultViewport,
+                ),
                 isLoading = false,
                 errorMessage = null,
             )
@@ -1301,7 +1309,9 @@ private fun RadarScreen(
                         activeViewport = data.viewport ?: viewport
                         RadarUiState(
                             window = data.window,
-                            frame = data.frame,
+                            frame = data.frame.copy(
+                                viewport = data.frame.viewport ?: data.viewport ?: viewport,
+                            ),
                             isLoading = false,
                             errorMessage = null,
                         )
@@ -1334,7 +1344,9 @@ private fun RadarScreen(
                     )
                 }
                 if (requestSerial != requestId) return@launch
-                val frame = result.getOrNull()
+                val frame = result.getOrNull()?.let {
+                    it.copy(viewport = it.viewport ?: viewport)
+                }
                 state = if (frame != null) {
                     state.copy(
                         frame = frame,
@@ -1373,7 +1385,9 @@ private fun RadarScreen(
                     activeViewport = data.viewport ?: viewport
                     RadarUiState(
                         window = data.window,
-                        frame = data.frame,
+                        frame = data.frame.copy(
+                            viewport = data.frame.viewport ?: data.viewport ?: viewport,
+                        ),
                         isLoading = false,
                         errorMessage = null,
                     )
@@ -1470,32 +1484,47 @@ private fun RadarMapCard(
             bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
         }
     }
-    var mapScale by remember(location, sourceViewportKey) { mutableStateOf(1f) }
-    var mapTranslation by remember(location, sourceViewportKey) { mutableStateOf(Offset.Zero) }
-    var gestureRevision by remember(location, sourceViewportKey) { mutableIntStateOf(0) }
+    var targetViewport by remember(location) { mutableStateOf(sourceViewport) }
+    var mapSize by remember(location) { mutableStateOf(IntSize.Zero) }
     val currentSourceViewport by rememberUpdatedState(sourceViewport)
+    val currentTargetViewport by rememberUpdatedState(targetViewport)
     val currentOnViewportChanged by rememberUpdatedState(onViewportChanged)
+    val targetViewportKey = targetViewport.cacheKey()
 
-    LaunchedEffect(gestureRevision) {
-        if (gestureRevision == 0) return@LaunchedEffect
+    LaunchedEffect(targetViewportKey) {
+        if (targetViewportKey == currentSourceViewport.cacheKey()) return@LaunchedEffect
         delay(RADAR_VIEWPORT_REQUEST_DEBOUNCE_MILLIS)
-        currentOnViewportChanged(
-            radarViewportForTransform(
-                sourceViewport = currentSourceViewport,
-                scale = mapScale,
-                translation = mapTranslation,
-            ),
-        )
+        val viewport = currentTargetViewport
+        if (viewport.cacheKey() != currentSourceViewport.cacheKey()) {
+            currentOnViewportChanged(viewport)
+        }
     }
 
-    val currentViewport = radarViewportForTransform(
+    val mapWidth = mapSize.width.takeIf { it > 0 }?.toFloat()
+        ?: sourceViewport.width.toFloat()
+    val mapHeight = mapSize.height.takeIf { it > 0 }?.toFloat()
+        ?: sourceViewport.height.toFloat()
+    val mapTransform = radarMapTransformForViewport(
         sourceViewport = sourceViewport,
-        scale = mapScale,
-        translation = mapTranslation,
+        targetViewport = targetViewport,
+        width = mapWidth,
+        height = mapHeight,
     )
+    val currentViewport = targetViewport
     val nowEpochMillis = System.currentTimeMillis()
     val arrival = forecast?.let { radarArrivalText(it, nowEpochMillis) }
     val confidence = forecast?.let { radarConfidenceText(it) }
+    val minimumLatitudeSpan = RADAR_MAP_LATITUDE_SPAN / RADAR_MAX_ZOOM
+    val maximumLatitudeSpan = RADAR_MAP_LATITUDE_SPAN / RADAR_MIN_ZOOM
+
+    fun zoomMapBy(factor: Float) {
+        targetViewport = targetViewport.copy(
+            latitudeSpan = (targetViewport.latitudeSpan / factor).coerceIn(
+                minimumLatitudeSpan,
+                maximumLatitudeSpan,
+            ),
+        )
+    }
 
     Box(
         modifier = modifier
@@ -1505,29 +1534,41 @@ private fun RadarMapCard(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .onSizeChanged { mapSize = it }
                 .semantics {
                     contentDescription =
                         "Interactive north-up radar map. Drag to pan and pinch to zoom."
                 }
-                .pointerInput(location, sourceViewportKey) {
+                .pointerInput(location) {
                     detectTransformGestures { centroid, pan, zoomChange, _ ->
-                        val previousScale = mapScale
+                        val currentTransform = radarMapTransformForViewport(
+                            sourceViewport = currentSourceViewport,
+                            targetViewport = currentTargetViewport,
+                            width = size.width.toFloat(),
+                            height = size.height.toFloat(),
+                        )
+                        val previousScale = currentTransform.scale
                         val nextScale = (previousScale * zoomChange)
-                            .coerceIn(RADAR_MIN_ZOOM, RADAR_MAX_ZOOM)
+                            .coerceIn(RADAR_MIN_GESTURE_SCALE, RADAR_MAX_GESTURE_SCALE)
                         val scaleChange = nextScale / previousScale
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val candidateTranslation = centroid + pan +
-                            (center + mapTranslation - centroid) * scaleChange - center
+                            (center + currentTransform.translation - centroid) * scaleChange - center
                         val nextTranslation = clampRadarMapTranslation(
                             translation = candidateTranslation,
                             scale = nextScale,
                             width = size.width.toFloat(),
                             height = size.height.toFloat(),
                         )
-                        if (nextScale != previousScale || nextTranslation != mapTranslation) {
-                            mapScale = nextScale
-                            mapTranslation = nextTranslation
-                            gestureRevision += 1
+                        val nextViewport = radarViewportForTransform(
+                            sourceViewport = currentSourceViewport,
+                            scale = nextScale,
+                            translation = nextTranslation,
+                            width = size.width.toFloat(),
+                            height = size.height.toFloat(),
+                        )
+                        if (nextViewport.cacheKey() != currentTargetViewport.cacheKey()) {
+                            targetViewport = nextViewport
                         }
                     }
                 },
@@ -1536,10 +1577,10 @@ private fun RadarMapCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        scaleX = mapScale
-                        scaleY = mapScale
-                        translationX = mapTranslation.x
-                        translationY = mapTranslation.y
+                        scaleX = mapTransform.scale
+                        scaleY = mapTransform.scale
+                        translationX = mapTransform.translation.x
+                        translationY = mapTransform.translation.y
                     },
             ) {
                 RadarBaseMap(modifier = Modifier.fillMaxSize())
@@ -1596,18 +1637,58 @@ private fun RadarMapCard(
             color = Color(0xF7FFFFFF),
             shadowElevation = 3.dp,
         ) {
-            IconButton(
-                onClick = { onSelectLatest(currentViewport) },
-                modifier = Modifier.semantics {
-                    contentDescription = "Radar layers and latest frame"
-                },
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Layers,
-                    contentDescription = null,
-                    tint = DeepBlue,
-                    modifier = Modifier.size(25.dp),
-                )
+            Column {
+                IconButton(
+                    onClick = { onSelectLatest(currentViewport) },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Radar layers and latest frame"
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Layers,
+                        contentDescription = null,
+                        tint = DeepBlue,
+                        modifier = Modifier.size(25.dp),
+                    )
+                }
+                IconButton(
+                    onClick = { zoomMapBy(1.6f) },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Zoom in on radar map"
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = null,
+                        tint = DeepBlue,
+                    )
+                }
+                IconButton(
+                    onClick = { zoomMapBy(1f / 1.6f) },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Zoom out on radar map"
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Remove,
+                        contentDescription = null,
+                        tint = DeepBlue,
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        targetViewport = EcccRadarMapViewport.centeredOn(location)
+                    },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Reset radar map view"
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.GpsFixed,
+                        contentDescription = null,
+                        tint = DeepBlue,
+                    )
+                }
             }
         }
 
@@ -1892,38 +1973,84 @@ private fun radarMapPoint(
     y = ((viewport.centerLatitude - latitude) / viewport.latitudeSpan + 0.5).toFloat(),
 )
 
-private fun clampRadarMapTranslation(
+internal data class RadarMapTransform(
+    val scale: Float,
+    val translation: Offset,
+)
+
+internal fun clampRadarMapTranslation(
     translation: Offset,
     scale: Float,
     width: Float,
     height: Float,
 ): Offset {
-    val maxX = (width * (scale - 1f) / 2f).coerceAtLeast(0f)
-    val maxY = (height * (scale - 1f) / 2f).coerceAtLeast(0f)
+    val safeScale = scale.coerceAtLeast(0f)
+    val maxX = (width * (safeScale - 1f) / 2f).coerceAtLeast(0f)
+    val maxY = (height * (safeScale - 1f) / 2f).coerceAtLeast(0f)
     return Offset(
         x = translation.x.coerceIn(-maxX, maxX),
         y = translation.y.coerceIn(-maxY, maxY),
     )
 }
 
-private fun radarViewportForTransform(
+internal fun radarMapTransformForViewport(
+    sourceViewport: EcccRadarMapViewport,
+    targetViewport: EcccRadarMapViewport,
+    width: Float,
+    height: Float,
+): RadarMapTransform {
+    val safeWidth = width.coerceAtLeast(1f)
+    val safeHeight = height.coerceAtLeast(1f)
+    val centerX = safeWidth / 2f
+    val centerY = safeHeight / 2f
+    val scale = (sourceViewport.latitudeSpan / targetViewport.latitudeSpan)
+        .toFloat()
+        .coerceIn(RADAR_MIN_GESTURE_SCALE, RADAR_MAX_GESTURE_SCALE)
+    val visibleSourceX = centerX +
+        ((targetViewport.centerLongitude - sourceViewport.centerLongitude) /
+            sourceViewport.longitudeSpan * safeWidth).toFloat()
+    val visibleSourceY = centerY +
+        ((sourceViewport.centerLatitude - targetViewport.centerLatitude) /
+            sourceViewport.latitudeSpan * safeHeight).toFloat()
+    val translation = Offset(
+        x = centerX - scale * visibleSourceX,
+        y = centerY - scale * visibleSourceY,
+    )
+
+    return RadarMapTransform(
+        scale = scale,
+        translation = clampRadarMapTranslation(
+            translation = translation,
+            scale = scale,
+            width = safeWidth,
+            height = safeHeight,
+        ),
+    )
+}
+
+internal fun radarViewportForTransform(
     sourceViewport: EcccRadarMapViewport,
     scale: Float,
     translation: Offset,
+    width: Float = sourceViewport.width.toFloat(),
+    height: Float = sourceViewport.height.toFloat(),
 ): EcccRadarMapViewport {
-    val safeScale = scale.coerceIn(RADAR_MIN_ZOOM, RADAR_MAX_ZOOM)
-    val sourceCenterX = sourceViewport.width / 2f
-    val sourceCenterY = sourceViewport.height / 2f
-    val visibleSourceX = (sourceCenterX - translation.x) / safeScale
-    val visibleSourceY = (sourceCenterY - translation.y) / safeScale
-    val centerLatitude = sourceViewport.centerLatitude -
-        ((visibleSourceY - sourceCenterY) / sourceViewport.height) * sourceViewport.latitudeSpan
-    val centerLongitude = sourceViewport.centerLongitude +
-        ((visibleSourceX - sourceCenterX) / sourceViewport.width) * sourceViewport.longitudeSpan
+    val safeWidth = width.coerceAtLeast(1f)
+    val safeHeight = height.coerceAtLeast(1f)
+    val safeScale = scale.coerceIn(RADAR_MIN_GESTURE_SCALE, RADAR_MAX_GESTURE_SCALE)
     val latitudeSpan = (sourceViewport.latitudeSpan / safeScale).coerceIn(
         RADAR_MAP_LATITUDE_SPAN / RADAR_MAX_ZOOM,
         RADAR_MAP_LATITUDE_SPAN / RADAR_MIN_ZOOM,
     )
+    val effectiveScale = (sourceViewport.latitudeSpan / latitudeSpan).toFloat()
+    val centerX = safeWidth / 2f
+    val centerY = safeHeight / 2f
+    val visibleSourceX = (centerX - translation.x) / effectiveScale
+    val visibleSourceY = (centerY - translation.y) / effectiveScale
+    val centerLatitude = sourceViewport.centerLatitude -
+        ((visibleSourceY - centerY) / safeHeight) * sourceViewport.latitudeSpan
+    val centerLongitude = sourceViewport.centerLongitude +
+        ((visibleSourceX - centerX) / safeWidth) * sourceViewport.longitudeSpan
     val halfLatitudeSpan = latitudeSpan / 2.0
 
     return EcccRadarMapViewport(

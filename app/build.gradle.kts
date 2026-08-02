@@ -24,7 +24,7 @@ android {
         applicationId = "com.raindepartment.weather"
         minSdk = 26
         targetSdk = 35
-        versionCode = 42
+        versionCode = 43
         versionName = "0.0.1"
 
         buildConfigField("String", "RAINDEPARTMENT_UPDATE_BASE_URL", "\"$rainDepartmentUpdateBaseUrl\"")
