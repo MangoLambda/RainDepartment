@@ -30,4 +30,15 @@ class WeatherCitiesTest {
         assertTrue(WeatherCities.search("reykjavik").any { it.label == "Reykjavík, Iceland" })
         assertTrue(WeatherCities.search("saint louis").any { it.label == "St. Louis, Missouri" })
     }
+
+    @Test
+    fun nearestCitiesFollowTheSelectedLocation() {
+        val newYork = WeatherCities.all.first { it.label == "New York, New York" }
+        val nearbyLabels = WeatherCities.nearestTo(newYork.location, limit = 4).map { it.label }
+
+        assertTrue(nearbyLabels.contains("Jersey City, New Jersey"))
+        assertTrue(nearbyLabels.contains("Newark, New Jersey"))
+        assertTrue(nearbyLabels.contains("Stamford, Connecticut"))
+        assertTrue(nearbyLabels.contains("Yonkers, New York"))
+    }
 }

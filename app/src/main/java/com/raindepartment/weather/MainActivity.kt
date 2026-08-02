@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudQueue
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GpsFixed
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.LocationCity
@@ -65,11 +66,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -96,6 +99,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -337,6 +341,9 @@ internal fun RainDepartmentApp(
     if (isCityPickerVisible) {
         CityPickerDialog(
             selectedLocation = selectedCityLocation,
+            currentLocation = selectedCityLocation ?: weatherState.snapshot?.location,
+            currentForecast = weatherState.snapshot?.forecast,
+            unitSystem = unitSystem,
             onSelect = { location ->
                 isCityPickerVisible = false
                 selectCity(location)
@@ -435,114 +442,572 @@ private fun RainDepartmentHeader(
     }
 }
 
+private enum class CityPickerFilter {
+    NEARBY,
+    RECENT,
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CityPickerDialog(
     selectedLocation: WeatherLocation?,
+    currentLocation: WeatherLocation?,
+    currentForecast: DashboardForecast?,
+    unitSystem: UnitSystem,
     onSelect: (WeatherLocation) -> Unit,
     onUseCurrentLocation: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    val cities = WeatherCities.search(query)
+    var filterName by rememberSaveable { mutableStateOf(CityPickerFilter.NEARBY.name) }
+    val selectedFilter = CityPickerFilter.valueOf(filterName)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val searchResults = WeatherCities.search(query)
+    val nearbyCities = remember(currentLocation) {
+        currentLocation?.let { WeatherCities.nearestTo(it, limit = 4) }.orEmpty()
+    }
+    val recentCities = remember(selectedLocation) {
+        selectedLocation?.let { location ->
+            listOf(
+                WeatherCities.all.firstOrNull { it.location == location }
+                    ?: WeatherCity(location.label, location.latitude, location.longitude),
+            )
+        }.orEmpty()
+    }
+    val visibleCities = when {
+        query.isNotBlank() -> searchResults
+        selectedFilter == CityPickerFilter.RECENT -> recentCities
+        else -> nearbyCities
+    }
+    val forecastForCurrentLocation = currentForecast?.takeIf { forecast ->
+        currentLocation?.label == forecast.location
+    }
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("Choose a city") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Search cities") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Search,
-                            contentDescription = null,
-                        )
-                    },
+        sheetState = sheetState,
+        containerColor = Color(0xFFF8FBFF),
+        scrimColor = Color(0x660D2946),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        dragHandle = { CityPickerDragHandle() },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Choose a city",
+                    modifier = Modifier.weight(1f),
+                    color = DeepBlue,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
                 )
-                Spacer(modifier = Modifier.height(6.dp))
-                TextButton(
-                    onClick = onUseCurrentLocation,
-                    modifier = Modifier.fillMaxWidth(),
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(Color(0xFFEAF3FC), CircleShape),
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.GpsFixed,
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Close city picker",
+                        tint = DeepBlue,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = {
+                    Text(
+                        text = "Search cities, states or countries",
+                        color = MutedNavy,
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = null,
+                        tint = MutedNavy,
+                    )
+                },
+                shape = RoundedCornerShape(15.dp),
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CityPickerFilterChip(
+                    label = "Nearby",
+                    icon = Icons.Outlined.GpsFixed,
+                    selected = selectedFilter == CityPickerFilter.NEARBY,
+                    onClick = { filterName = CityPickerFilter.NEARBY.name },
+                )
+                CityPickerFilterChip(
+                    label = "Recent",
+                    icon = Icons.Outlined.AccessTime,
+                    selected = selectedFilter == CityPickerFilter.RECENT,
+                    onClick = { filterName = CityPickerFilter.RECENT.name },
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 220.dp, max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (query.isBlank() &&
+                    selectedFilter == CityPickerFilter.NEARBY &&
+                    currentLocation != null
+                ) {
+                    item {
+                        CityPickerSectionTitle("Current location")
+                    }
+                    item {
+                        CityPickerCurrentCard(
+                            location = currentLocation,
+                            forecast = forecastForCurrentLocation,
+                            unitSystem = unitSystem,
+                        )
+                    }
+                    item {
+                        CityPickerSectionTitle("Nearby cities")
+                    }
+                } else {
+                    item {
+                        CityPickerSectionTitle(
+                            when {
+                                query.isNotBlank() -> "Search results"
+                                selectedFilter == CityPickerFilter.RECENT -> "Recent cities"
+                                else -> "Nearby cities"
+                            },
+                        )
+                    }
+                }
+
+                if (visibleCities.isEmpty()) {
+                    item {
+                        Text(
+                            text = if (query.isBlank()) {
+                                "No recent cities yet"
+                            } else {
+                                "No matching cities"
+                            },
+                            modifier = Modifier.padding(vertical = 12.dp),
+                            color = MutedNavy,
+                            fontSize = 13.sp,
+                        )
+                    }
+                } else {
+                    items(visibleCities, key = { it.label }) { city ->
+                        CityPickerCityRow(
+                            city = city,
+                            selected = selectedLocation == city.location,
+                            onClick = { onSelect(city.location) },
+                        )
+                    }
+                }
+                item {
+                    CityPickerUseCurrentLocation(onClick = onUseCurrentLocation)
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun CityPickerDragHandle() {
+    Box(
+        modifier = Modifier
+            .padding(top = 10.dp, bottom = 4.dp)
+            .size(width = 60.dp, height = 5.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color(0xFFB9C0C6)),
+    )
+}
+
+@Composable
+private fun CityPickerFilterChip(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .clip(RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(22.dp),
+        color = if (selected) AccentBlue else Color(0xFFEAF3FC),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) Color.White else DeepBlue,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = label,
+                color = if (selected) Color.White else DeepBlue,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CityPickerSectionTitle(title: String) {
+    Text(
+        text = title,
+        modifier = Modifier.padding(top = 2.dp, bottom = 3.dp),
+        color = MutedNavy,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Bold,
+    )
+}
+
+@Composable
+private fun CityPickerCurrentCard(
+    location: WeatherLocation,
+    forecast: DashboardForecast?,
+    unitSystem: UnitSystem,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = BorderStroke(1.dp, Color(0xFFC9E5F2)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xFFDDF2FF),
+                            Color(0xFFEAF7FC),
+                            Color(0xFFE5F3D7),
+                        ),
+                    ),
+                )
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color.White.copy(alpha = 0.88f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.LocationOn,
                         contentDescription = null,
                         tint = AccentBlue,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(29.dp),
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.Start,
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Use approximate location", color = DeepBlue)
                         Text(
-                            "Ask the device for your current city",
+                            text = location.label,
+                            modifier = Modifier.weight(1f),
+                            color = DeepBlue,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AccentBlue,
+                        ) {
+                            Text(
+                                text = "Current",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    Text(
+                        text = locationSubtitle(location.label),
+                        color = MutedNavy,
+                        fontSize = 12.sp,
+                    )
+                    Spacer(modifier = Modifier.height(5.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (forecast != null) {
+                            ConditionIcon(forecast.condition, Modifier.size(19.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = forecast.conditionLabel,
+                                color = DeepBlue,
+                                fontSize = 11.sp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.LocationOn,
+                                contentDescription = null,
+                                tint = AccentBlue,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Selected city",
+                                color = DeepBlue,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+                }
+                if (forecast != null) {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = forecast.temperature(forecast.currentFahrenheit, unitSystem),
+                            color = DeepBlue,
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "Feels like ${forecast.temperature(forecast.feelsLikeFahrenheit, unitSystem)}",
                             color = MutedNavy,
                             fontSize = 10.sp,
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                LazyColumn(
-                    modifier = Modifier
-                        .heightIn(max = 300.dp)
-                        .fillMaxWidth(),
-                ) {
-                    if (cities.isEmpty()) {
-                        item {
-                            Text(
-                                text = "No matching cities",
-                                modifier = Modifier.padding(vertical = 12.dp),
-                                color = MutedNavy,
-                                fontSize = 13.sp,
-                            )
-                        }
-                    } else {
-                        items(cities, key = { it.label }) { city ->
-                            val isSelected = selectedLocation == city.location
-                            TextButton(
-                                onClick = { onSelect(city.location) },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = city.label,
-                                        modifier = Modifier.weight(1f),
-                                        color = if (isSelected) AccentBlue else DeepBlue,
-                                        fontWeight = if (isSelected) {
-                                            FontWeight.Bold
-                                        } else {
-                                            FontWeight.Normal
-                                        },
-                                    )
-                                    if (isSelected) {
-                                        Text(
-                                            text = "Selected",
-                                            color = AccentBlue,
-                                            fontSize = 10.sp,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+        }
+    }
+}
+
+@Composable
+private fun CityPickerCityRow(
+    city: WeatherCity,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(
+            1.dp,
+            if (selected) Color(0xFF9CCEF0) else Color(0xFFE1EAF1),
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(Color(0xFFEAF3FC), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.LocationCity,
+                    contentDescription = null,
+                    tint = AccentBlue,
+                    modifier = Modifier.size(23.dp),
+                )
             }
-        },
-    )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = city.label,
+                    color = if (selected) AccentBlue else DeepBlue,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = locationSubtitle(city.label),
+                    color = MutedNavy,
+                    fontSize = 12.sp,
+                )
+            }
+            if (selected) {
+                Text(
+                    text = "Selected",
+                    color = AccentBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                tint = Color(0xFF9AB4CC),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CityPickerUseCurrentLocation(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, Color(0xFFD5E1EC)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.GpsFixed,
+                contentDescription = null,
+                tint = AccentBlue,
+                modifier = Modifier.size(27.dp),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Use approximate location",
+                    color = DeepBlue,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "Ask the device for your current city",
+                    color = MutedNavy,
+                    fontSize = 10.sp,
+                )
+            }
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                tint = Color(0xFF9AB4CC),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+private val UnitedStatesRegions = setOf(
+    "Alabama",
+    "Alaska",
+    "Arizona",
+    "Arkansas",
+    "California",
+    "Colorado",
+    "Connecticut",
+    "Delaware",
+    "Florida",
+    "Georgia",
+    "Hawaii",
+    "Idaho",
+    "Illinois",
+    "Indiana",
+    "Iowa",
+    "Kansas",
+    "Kentucky",
+    "Louisiana",
+    "Maine",
+    "Maryland",
+    "Massachusetts",
+    "Michigan",
+    "Minnesota",
+    "Mississippi",
+    "Missouri",
+    "Montana",
+    "Nebraska",
+    "Nevada",
+    "New Hampshire",
+    "New Jersey",
+    "New Mexico",
+    "New York",
+    "North Carolina",
+    "North Dakota",
+    "Ohio",
+    "Oklahoma",
+    "Oregon",
+    "Pennsylvania",
+    "Rhode Island",
+    "South Carolina",
+    "South Dakota",
+    "Tennessee",
+    "Texas",
+    "Utah",
+    "Vermont",
+    "Virginia",
+    "Washington",
+    "West Virginia",
+    "Wisconsin",
+    "Wyoming",
+    "D.C.",
+)
+
+private val CanadianRegions = setOf(
+    "Alberta",
+    "British Columbia",
+    "Manitoba",
+    "New Brunswick",
+    "Newfoundland and Labrador",
+    "Nova Scotia",
+    "Nunavut",
+    "Ontario",
+    "Prince Edward Island",
+    "Quebec",
+    "Québec",
+    "Saskatchewan",
+    "Northwest Territories",
+    "Yukon",
+)
+
+private fun locationSubtitle(label: String): String {
+    val region = label.substringAfter(", ", missingDelimiterValue = "")
+    return when {
+        region.isBlank() -> "Current location"
+        region in UnitedStatesRegions -> "$region, USA"
+        region in CanadianRegions -> "$region, Canada"
+        else -> region
+    }
 }
 
 @Composable

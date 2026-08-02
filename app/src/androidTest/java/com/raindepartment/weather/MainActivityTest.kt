@@ -56,6 +56,8 @@ class MainActivityTest {
     fun cityPickerCanSelectAnotherCity() {
         composeRule.onNodeWithContentDescription("Choose city").performClick()
         composeRule.onNodeWithText("Choose a city").assertIsDisplayed()
+        composeRule.onNodeWithText("Nearby").assertIsDisplayed()
+        composeRule.onNodeWithText("Recent").assertIsDisplayed()
         composeRule.onNode(hasSetTextAction()).performTextInput("Denver")
         composeRule.onNodeWithText("Denver, Colorado").performClick()
         composeRule.waitForIdle()

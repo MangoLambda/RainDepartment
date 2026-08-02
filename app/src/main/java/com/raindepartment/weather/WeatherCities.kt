@@ -2,6 +2,7 @@ package com.raindepartment.weather
 
 import java.text.Normalizer
 import java.util.Locale
+import kotlin.math.cos
 
 internal data class WeatherCity(
     val label: String,
@@ -197,6 +198,7 @@ internal object WeatherCities {
         WeatherCity("Springfield, Missouri", 37.2090, -93.2923),
         WeatherCity("St. Louis, Missouri", 38.6270, -90.1994, listOf("Saint Louis")),
         WeatherCity("St. Petersburg, Florida", 27.7676, -82.6403, listOf("Saint Petersburg")),
+        WeatherCity("Stamford, Connecticut", 41.0534, -73.5387),
         WeatherCity("State College, Pennsylvania", 40.7934, -77.8600),
         WeatherCity("Stockton, California", 37.9577, -121.2908),
         WeatherCity("Syracuse, New York", 43.0481, -76.1474),
@@ -869,6 +871,20 @@ internal object WeatherCities {
         return all.filter { city ->
             normalizeSearchText(city.labelAndAliases()).contains(normalizedQuery)
         }
+    }
+
+    fun nearestTo(location: WeatherLocation, limit: Int): List<WeatherCity> {
+        val longitudeScale = cos(Math.toRadians(location.latitude))
+        return all.asSequence()
+            .filterNot { it.location == location }
+            .sortedBy { city ->
+                val latitudeDistance = city.latitude - location.latitude
+                val longitudeDistance = (city.longitude - location.longitude) * longitudeScale
+                (latitudeDistance * latitudeDistance) +
+                    (longitudeDistance * longitudeDistance)
+            }
+            .take(limit)
+            .toList()
     }
 
     private fun WeatherCity.labelAndAliases(): String = buildString {
