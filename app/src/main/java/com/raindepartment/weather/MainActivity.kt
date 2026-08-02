@@ -1540,7 +1540,7 @@ private fun RadarMapCard(
                         "Interactive north-up radar map. Drag to pan and pinch to zoom."
                 }
                 .pointerInput(location) {
-                    detectTransformGestures { centroid, pan, zoomChange, _ ->
+                    detectTransformGestures(panZoomLock = false) { centroid, pan, zoomChange, _ ->
                         val currentTransform = radarMapTransformForViewport(
                             sourceViewport = currentSourceViewport,
                             targetViewport = currentTargetViewport,
@@ -1594,38 +1594,6 @@ private fun RadarMapCard(
                 }
                 RadarMapLabels(location = location)
                 RadarLocationMarker(location = location, viewport = sourceViewport)
-            }
-        }
-
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(14.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = Color(0xD91B2931),
-            shadowElevation = 3.dp,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.AccessTime,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(19.dp),
-                )
-                Text(
-                    text = if (frame != null) {
-                        "Latest frame ${formatRadarFrameTime(frame.timeEpochMillis)}"
-                    } else {
-                        "Loading latest frame"
-                    },
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                )
             }
         }
 
@@ -1696,9 +1664,9 @@ private fun RadarMapCard(
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 14.dp, top = 76.dp, end = 70.dp),
+                    .padding(start = 14.dp, top = 14.dp, end = 70.dp),
                 shape = RoundedCornerShape(19.dp),
-                color = Color(0xF5FFFFFF),
+                color = Color.White.copy(alpha = 0.70f),
                 shadowElevation = 5.dp,
             ) {
                 Row(
@@ -1985,8 +1953,12 @@ internal fun clampRadarMapTranslation(
     height: Float,
 ): Offset {
     val safeScale = scale.coerceAtLeast(0f)
-    val maxX = (width * (safeScale - 1f) / 2f).coerceAtLeast(0f)
-    val maxY = (height * (safeScale - 1f) / 2f).coerceAtLeast(0f)
+    // At the base zoom the downloaded image exactly fills the card, but a drag
+    // still needs to move the requested viewport so a new image can be fetched.
+    // Keep a half-card buffer for that handoff, then grow the range with the
+    // image bounds as the map is zoomed in.
+    val maxX = width * maxOf(0.5f, (safeScale - 1f) / 2f)
+    val maxY = height * maxOf(0.5f, (safeScale - 1f) / 2f)
     return Offset(
         x = translation.x.coerceIn(-maxX, maxX),
         y = translation.y.coerceIn(-maxY, maxY),

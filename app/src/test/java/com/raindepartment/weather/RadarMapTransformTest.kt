@@ -50,4 +50,30 @@ class RadarMapTransformTest {
             0.000001,
         )
     }
+
+    @Test
+    fun baseZoomAllowsDraggingToRequestANewViewport() {
+        val source = EcccRadarMapViewport.centeredOn(AustinLocation)
+        val pan = Offset(x = 80f, y = -120f)
+
+        val target = radarViewportForTransform(
+            sourceViewport = source,
+            scale = 1f,
+            translation = pan,
+            width = 360f,
+            height = 600f,
+        )
+
+        assertEquals(source.latitudeSpan, target.latitudeSpan, 0.000001)
+        assertEquals(
+            source.centerLongitude - (80.0 / 360.0) * source.longitudeSpan,
+            target.centerLongitude,
+            0.000001,
+        )
+        assertEquals(
+            source.centerLatitude - (120.0 / 600.0) * source.latitudeSpan,
+            target.centerLatitude,
+            0.000001,
+        )
+    }
 }

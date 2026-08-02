@@ -133,11 +133,12 @@ class MainActivityTest {
         composeRule.onNodeWithText("Radar").performClick()
         composeRule.waitUntil(3_000) {
             composeRule
-                .onAllNodesWithText("Latest frame", substring = true)
+                .onAllNodesWithText("Light")
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
 
+        composeRule.onAllNodesWithText("Latest frame", substring = true).assertCountEquals(0)
         composeRule.onNodeWithText("Rain arriving in ~1h").assertIsDisplayed()
         composeRule.onNodeWithText("Confidence: Medium").assertIsDisplayed()
         composeRule.onNodeWithText("Radar updates", substring = true).assertIsDisplayed()
