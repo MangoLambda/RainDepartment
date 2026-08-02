@@ -202,6 +202,18 @@ internal fun RainDepartmentApp(
             )
         }
     }
+    val refreshForecastAndCheckForUpdates: () -> Unit = {
+        weatherScope.launch {
+            if (checkForUpdates) {
+                launch { updateManager.check() }
+            }
+            weatherRepository.refresh(
+                force = true,
+                updateLocation = false,
+                locationOverride = selectedCityLocation,
+            )
+        }
+    }
     val refreshLocation: () -> Unit = {
         selectedCityLocation = null
         WeatherPreferences.clearSelectedLocation(context)
@@ -298,7 +310,7 @@ internal fun RainDepartmentApp(
             when (selectedTab) {
                 DashboardTab.BRIEFING -> RefreshableBriefingContent(
                     isRefreshing = weatherState.isRefreshing,
-                    onRefresh = refreshForecast,
+                    onRefresh = refreshForecastAndCheckForUpdates,
                 ) {
                     weatherState.snapshot?.let { snapshot ->
                         BriefingScreen(
@@ -311,7 +323,7 @@ internal fun RainDepartmentApp(
                             isStale = weatherState.isStale,
                             errorMessage = weatherState.errorMessage,
                             onLocationClick = { isCityPickerVisible = true },
-                            onRefresh = refreshForecast,
+                            onRefresh = refreshForecastAndCheckForUpdates,
                             useNativeScrollCapture = useNativeBriefingScrollCapture,
                         )
                     } ?: BriefingUnavailableScreen(

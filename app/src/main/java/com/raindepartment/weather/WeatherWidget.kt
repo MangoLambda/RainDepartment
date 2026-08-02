@@ -207,6 +207,7 @@ private fun WeatherWidgetContent(
                             )
                         }
                     }
+                    Spacer(modifier = GlanceModifier.width(8.dp))
                     Text(
                         text = weather.temperature(unitSystem),
                         style = TextStyle(
