@@ -79,6 +79,10 @@ private val WidgetSoftWhite = ColorProvider(
     day = Color(0xE6FFFFFF),
     night = Color(0xE6FFFFFF),
 )
+private val WidgetDetailsBackground = ColorProvider(
+    day = Color(0x88001F42),
+    night = Color(0x88001F42),
+)
 private val WidgetScrim = ColorProvider(
     day = Color(0x24001F42),
     night = Color(0x24001F42),
@@ -181,14 +185,16 @@ private fun WeatherWidgetContent(
                                 fontWeight = FontWeight.Bold,
                             ),
                         )
-                        Spacer(modifier = GlanceModifier.height(2.dp))
-                        Text(
-                            text = if (isStale) "Stale forecast" else "Today",
-                            style = TextStyle(
-                                color = WidgetSoftWhite,
-                                fontSize = 10.sp,
-                            ),
-                        )
+                        if (isStale) {
+                            Spacer(modifier = GlanceModifier.height(2.dp))
+                            Text(
+                                text = "Stale forecast",
+                                style = TextStyle(
+                                    color = WidgetSoftWhite,
+                                    fontSize = 10.sp,
+                                ),
+                            )
+                        }
                     }
                     Text(
                         text = weather.temperature(unitSystem),
@@ -199,31 +205,41 @@ private fun WeatherWidgetContent(
                         ),
                     )
                     Spacer(modifier = GlanceModifier.width(10.dp))
-                    Column(modifier = GlanceModifier.defaultWeight()) {
-                        Text(
-                            text = weather.conditionLabel,
-                            style = TextStyle(
-                                color = WidgetWhite,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                        )
-                        Spacer(modifier = GlanceModifier.height(4.dp))
-                        Text(
-                            text = "${forecast.precipitationChance}% precip  ·  ${forecast.rainStartsIn}",
-                            style = TextStyle(
-                                color = WidgetSoftWhite,
-                                fontSize = 10.sp,
-                            ),
-                        )
-                        Spacer(modifier = GlanceModifier.height(2.dp))
-                        Text(
-                            text = weather.highLow(unitSystem),
-                            style = TextStyle(
-                                color = WidgetSoftWhite,
-                                fontSize = 10.sp,
-                            ),
-                        )
+                    Box(
+                        modifier = GlanceModifier
+                            .defaultWeight()
+                            .cornerRadius(10.dp)
+                            .background(WidgetDetailsBackground)
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                    ) {
+                        Column {
+                            Text(
+                                text = weather.conditionLabel,
+                                style = TextStyle(
+                                    color = WidgetWhite,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                            )
+                            Spacer(modifier = GlanceModifier.height(4.dp))
+                            Text(
+                                text = "${forecast.precipitationChance}% precip  ·  ${forecast.rainStartsIn}",
+                                style = TextStyle(
+                                    color = WidgetWhite,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                            )
+                            Spacer(modifier = GlanceModifier.height(2.dp))
+                            Text(
+                                text = weather.highLow(unitSystem),
+                                style = TextStyle(
+                                    color = WidgetWhite,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                            )
+                        }
                     }
                 }
             }
