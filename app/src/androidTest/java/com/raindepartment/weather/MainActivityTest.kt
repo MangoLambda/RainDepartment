@@ -53,6 +53,11 @@ class MainActivityTest {
         composeRule.onNodeWithText("Hourly timeline").assertIsDisplayed()
         composeRule.onNodeWithText("Precipitation Intensity").assertIsDisplayed()
         composeRule.onNodeWithText("Radar intensity · 6 min").assertIsDisplayed()
+        composeRule.onNodeWithText("Rain rate", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("None").assertIsDisplayed()
+        composeRule.onNodeWithText("Light").assertIsDisplayed()
+        composeRule.onNodeWithText("Moderate").assertIsDisplayed()
+        composeRule.onNodeWithText("Heavy").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Now forecast, expanded").assertIsDisplayed()
 
         composeRule

@@ -2371,8 +2371,83 @@ private const val TIMELINE_RADAR_HALF_WINDOW_MILLIS = 60 * 60_000L
 private data class TimelineIntensityPoint(
     val timeEpochMillis: Long,
     val label: String,
-    val value: Float,
+    val valueMillimetersPerHour: Float,
 )
+
+internal enum class TimelineIntensityBand {
+    NONE,
+    LIGHT,
+    MODERATE,
+    HEAVY,
+}
+
+internal data class TimelineIntensityScale(
+    val maximumMillimetersPerHour: Float,
+    val midpointMillimetersPerHour: Float,
+)
+
+internal fun timelineIntensityBand(valueMillimetersPerHour: Float): TimelineIntensityBand {
+    val value = valueMillimetersPerHour.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 0f
+    return when {
+        value <= 0f -> TimelineIntensityBand.NONE
+        value < 2.5f -> TimelineIntensityBand.LIGHT
+        value < 7.6f -> TimelineIntensityBand.MODERATE
+        else -> TimelineIntensityBand.HEAVY
+    }
+}
+
+internal fun timelineIntensityScale(valuesMillimetersPerHour: List<Float>): TimelineIntensityScale {
+    val maximum = valuesMillimetersPerHour
+        .map { it.takeIf { value -> value.isFinite() }?.coerceAtLeast(0f) ?: 0f }
+        .maxOrNull()
+        ?: 0f
+    val axisMaximum = if (maximum > 0f) {
+        timelineIntensityNiceAxisMaximum(maximum)
+    } else {
+        1f
+    }
+    return TimelineIntensityScale(
+        maximumMillimetersPerHour = axisMaximum,
+        midpointMillimetersPerHour = axisMaximum / 2f,
+    )
+}
+
+internal fun timelineIntensityDisplayValue(
+    valueMillimetersPerHour: Float,
+    unitSystem: UnitSystem,
+): Float = when (unitSystem) {
+    UnitSystem.METRIC -> valueMillimetersPerHour
+    UnitSystem.IMPERIAL -> valueMillimetersPerHour / 25.4f
+}
+
+internal fun timelineIntensityAxisLabel(
+    valueMillimetersPerHour: Float,
+    unitSystem: UnitSystem,
+): String {
+    val displayValue = timelineIntensityDisplayValue(valueMillimetersPerHour, unitSystem)
+    if (displayValue == 0f) return "0"
+    val decimals = when {
+        displayValue >= 1f -> 1
+        displayValue >= 0.1f -> 2
+        else -> 3
+    }
+    return String.format(Locale.US, "%.${decimals}f", displayValue)
+}
+
+private fun timelineIntensityNiceAxisMaximum(value: Float): Float {
+    var magnitude = 1f
+    while (value / magnitude > 10f) magnitude *= 10f
+    while (value / magnitude < 1f) magnitude /= 10f
+
+    val normalized = value / magnitude
+    val rounded = when {
+        normalized <= 1f -> 1f
+        normalized <= 2f -> 2f
+        normalized <= 5f -> 5f
+        else -> 10f
+    }
+    return rounded * magnitude
+}
 
 private data class TimelineRadarState(
     val isLoading: Boolean = false,
@@ -2519,7 +2594,6 @@ private fun TimelineScreen(
                     fallbackPoints = timelineForecastIntensityPoints(
                         hourly = hourly,
                         selectedIndex = index,
-                        unitSystem = unitSystem,
                     ),
                     zoneId = zoneId,
                     onClick = { selectedIndex = index },
@@ -2915,6 +2989,7 @@ private fun TimelineExpandedDetails(
             radarState = radarState,
             fallbackPoints = fallbackPoints,
             zoneId = zoneId,
+            unitSystem = unitSystem,
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2989,6 +3064,7 @@ private fun TimelineIntensityChart(
     radarState: TimelineRadarState,
     fallbackPoints: List<TimelineIntensityPoint>,
     zoneId: ZoneId,
+    unitSystem: UnitSystem,
 ) {
     val useRadar = !radarState.isLoading && radarState.points.size >= 2
     val points = if (useRadar) {
@@ -2998,7 +3074,9 @@ private fun TimelineIntensityChart(
                 label = timelineChartTimeFormatter
                     .withZone(zoneId)
                     .format(Instant.ofEpochMilli(point.timeEpochMillis)),
-                value = point.rateMillimetersPerHour.toFloat(),
+                valueMillimetersPerHour = point.rateMillimetersPerHour
+                    .toFloat()
+                    .coerceAtLeast(0f),
             )
         }
     } else {
@@ -3009,11 +3087,25 @@ private fun TimelineIntensityChart(
         useRadar -> "Radar intensity · 6 min"
         else -> "Forecast precipitation"
     }
+    val unitLabel = if (unitSystem == UnitSystem.METRIC) "mm" else "in"
+    val metricLabel = if (useRadar) {
+        "Rain rate ($unitLabel/h)"
+    } else {
+        "Hourly precipitation ($unitLabel)"
+    }
+    val scale = timelineIntensityScale(points.map { it.valueMillimetersPerHour })
+    val chartDescription = if (points.isNotEmpty()) {
+        "$sourceLabel. $metricLabel. Scale 0 to " +
+            "${timelineIntensityAxisLabel(scale.maximumMillimetersPerHour, unitSystem)} $unitLabel" +
+            if (useRadar) "/h." else "."
+    } else {
+        sourceLabel
+    }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .semantics { contentDescription = sourceLabel },
+            .semantics { contentDescription = chartDescription },
         shape = RoundedCornerShape(12.dp),
         color = Color(0xFFFBFDFF),
         border = BorderStroke(1.dp, Color(0xFFE0EAF2)),
@@ -3037,6 +3129,14 @@ private fun TimelineIntensityChart(
                     maxLines = 1,
                 )
             }
+            if (points.isNotEmpty()) {
+                Text(
+                    text = metricLabel,
+                    color = MutedNavy,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
             Spacer(modifier = Modifier.height(3.dp))
             if (radarState.isLoading) {
                 LinearProgressIndicator(
@@ -3047,7 +3147,12 @@ private fun TimelineIntensityChart(
             }
             if (points.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(3.dp))
-                TimelineIntensityBars(points = points, useRadar = useRadar)
+                TimelineIntensityBars(
+                    points = points,
+                    useRadar = useRadar,
+                    unitSystem = unitSystem,
+                    scale = scale,
+                )
             } else if (!radarState.isLoading) {
                 Text(
                     text = "No precipitation intensity data for this hour.",
@@ -3063,42 +3168,91 @@ private fun TimelineIntensityChart(
 private fun TimelineIntensityBars(
     points: List<TimelineIntensityPoint>,
     useRadar: Boolean,
+    unitSystem: UnitSystem,
+    scale: TimelineIntensityScale,
 ) {
-    val safeMax = points.maxOfOrNull { it.value }?.coerceAtLeast(0.1f) ?: 0.1f
     val labelStep = if (points.size <= 5) 1 else (points.size / 4).coerceAtLeast(1)
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp),
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
-            verticalAlignment = Alignment.Bottom,
+                .height(60.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            points.forEach { point ->
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(
-                            (point.value / safeMax * 52f)
-                                .coerceAtLeast(4f)
-                                .dp,
+            Column(
+                modifier = Modifier
+                    .width(38.dp)
+                    .fillMaxHeight(),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                listOf(
+                    scale.maximumMillimetersPerHour,
+                    scale.midpointMillimetersPerHour,
+                    0f,
+                ).forEach { value ->
+                    Text(
+                        text = timelineIntensityAxisLabel(value, unitSystem),
+                        color = MutedNavy,
+                        fontSize = 7.sp,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val lineColor = Color(0xFFDCE8F1)
+                    val top = 1.dp.toPx()
+                    val middle = size.height / 2f
+                    val bottom = size.height - 1.dp.toPx()
+                    listOf(top, middle, bottom).forEach { y ->
+                        drawLine(
+                            color = lineColor,
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = 1.dp.toPx(),
                         )
-                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                        .then(
-                            if (useRadar) {
-                                Modifier.background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0xFF6EB7F2), Color(0xFF167CDC)),
-                                )
-                                )
-                            } else {
-                                Modifier.background(Color(0xFF7DB7EA))
-                            },
-                        ),
-                )
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 1.dp),
+                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    points.forEach { point ->
+                        val value = point.valueMillimetersPerHour
+                            .takeIf { it.isFinite() }
+                            ?.coerceAtLeast(0f)
+                            ?: 0f
+                        val barHeight = if (value == 0f) {
+                            1f
+                        } else {
+                            (value / scale.maximumMillimetersPerHour * 56f)
+                                .coerceIn(2f, 56f)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(barHeight.dp)
+                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                .then(timelineIntensityBarModifier(timelineIntensityBand(value), useRadar)),
+                        )
+                    }
+                }
             }
         }
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 44.dp),
+        ) {
             points.forEachIndexed { index, point ->
                 Text(
                     text = if (index % labelStep == 0 || index == points.lastIndex) {
@@ -3114,13 +3268,71 @@ private fun TimelineIntensityBars(
                 )
             }
         }
+        Spacer(modifier = Modifier.height(5.dp))
+        TimelineIntensityLegend()
+    }
+}
+
+private fun timelineIntensityBarModifier(
+    band: TimelineIntensityBand,
+    useRadar: Boolean,
+): Modifier {
+    val color = when (band) {
+        TimelineIntensityBand.NONE -> Color(0xFFD7E4ED)
+        TimelineIntensityBand.LIGHT -> Color(0xFF9CCFF3)
+        TimelineIntensityBand.MODERATE -> Color(0xFF4B9FDF)
+        TimelineIntensityBand.HEAVY -> Color(0xFF176FC1)
+    }
+    return if (useRadar) {
+        Modifier.background(
+            Brush.verticalGradient(
+                listOf(color.copy(alpha = 0.72f), color),
+            ),
+        )
+    } else {
+        Modifier.background(color)
+    }
+}
+
+@Composable
+private fun TimelineIntensityLegend() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TimelineIntensityLegendItem("None", Color(0xFFD7E4ED))
+        TimelineIntensityLegendItem("Light", Color(0xFF9CCFF3))
+        TimelineIntensityLegendItem("Moderate", Color(0xFF4B9FDF))
+        TimelineIntensityLegendItem("Heavy", Color(0xFF176FC1))
+    }
+}
+
+@Composable
+private fun TimelineIntensityLegendItem(
+    label: String,
+    color: Color,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(color),
+        )
+        Spacer(modifier = Modifier.width(3.dp))
+        Text(
+            text = label,
+            color = MutedNavy,
+            fontSize = 7.sp,
+            maxLines = 1,
+        )
     }
 }
 
 private fun timelineForecastIntensityPoints(
     hourly: List<HourlyForecast>,
     selectedIndex: Int,
-    unitSystem: UnitSystem,
 ): List<TimelineIntensityPoint> {
     if (hourly.isEmpty()) return emptyList()
     val start = (selectedIndex - 1).coerceAtLeast(0)
@@ -3129,10 +3341,7 @@ private fun timelineForecastIntensityPoints(
         TimelineIntensityPoint(
             timeEpochMillis = hour.timeEpochMillis ?: offset.toLong(),
             label = hour.time,
-            value = when (unitSystem) {
-                UnitSystem.METRIC -> (hour.rainfallInches * 25.4).toFloat()
-                UnitSystem.IMPERIAL -> hour.rainfallInches.toFloat()
-            },
+            valueMillimetersPerHour = (hour.rainfallInches * 25.4).toFloat().coerceAtLeast(0f),
         )
     }
 }
