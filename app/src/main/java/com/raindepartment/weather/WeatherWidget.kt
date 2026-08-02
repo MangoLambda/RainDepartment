@@ -36,16 +36,11 @@ object WeatherWidget : GlanceAppWidget() {
             val refreshState = currentState<Any?>()
             val snapshot = SharedPreferencesWeatherCache(context).read()
             val unitSystem = WeatherPreferences.unitSystem(context)
-            val selectedBackplate = if (WeatherPreferences.isAutomaticBackplate(context)) {
-                null
-            } else {
-                BackplateChoices.getOrNull(WeatherPreferences.backplateIndex(context))
-            }
 
             if (snapshot == null) {
                 WeatherWidgetUnavailable()
             } else {
-                val weather = snapshot.forecast.currentWeather().forBackplate(selectedBackplate)
+                val weather = snapshot.forecast.currentWeather()
                 val backplate = remember(
                     refreshState,
                     weather.condition,

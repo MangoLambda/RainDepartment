@@ -40,13 +40,9 @@ internal enum class WeatherCondition {
 internal object WeatherPreferences {
     private const val PREFERENCES_NAME = "weather_preferences"
     private const val UNIT_SYSTEM_KEY = "unit_system"
-    private const val BACKPLATE_INDEX_KEY = "backplate_index"
-    private const val AUTOMATIC_BACKPLATE_KEY = "automatic_backplate"
     private const val SELECTED_LOCATION_LATITUDE_KEY = "selected_location_latitude"
     private const val SELECTED_LOCATION_LONGITUDE_KEY = "selected_location_longitude"
     private const val SELECTED_LOCATION_LABEL_KEY = "selected_location_label"
-    private const val DEFAULT_BACKPLATE_INDEX = 4
-    internal const val AUTOMATIC_BACKPLATE_INDEX = -1
 
     fun unitSystem(context: Context): UnitSystem {
         val stored = context
@@ -61,45 +57,6 @@ internal object WeatherPreferences {
             .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(UNIT_SYSTEM_KEY, unitSystem.name)
-            .apply()
-    }
-
-    fun isAutomaticBackplate(context: Context): Boolean {
-        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        if (preferences.contains(AUTOMATIC_BACKPLATE_KEY)) {
-            return preferences.getBoolean(AUTOMATIC_BACKPLATE_KEY, true)
-        }
-
-        // Preserve a manual choice made by older builds. Fresh installs default to the
-        // current live condition instead of the former static partly-cloudy image.
-        return !preferences.contains(BACKPLATE_INDEX_KEY)
-    }
-
-    fun backplateIndex(context: Context): Int {
-        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        if (isAutomaticBackplate(context)) return AUTOMATIC_BACKPLATE_INDEX
-        return preferences
-            .getInt(BACKPLATE_INDEX_KEY, DEFAULT_BACKPLATE_INDEX)
-            .coerceIn(BackplateChoices.indices)
-    }
-
-    fun setAutomaticBackplate(context: Context, automatic: Boolean) {
-        context
-            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(AUTOMATIC_BACKPLATE_KEY, automatic)
-            .apply()
-    }
-
-    fun setBackplateIndex(context: Context, index: Int) {
-        context
-            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(
-                BACKPLATE_INDEX_KEY,
-                index.coerceIn(AUTOMATIC_BACKPLATE_INDEX, BackplateChoices.lastIndex),
-            )
-            .putBoolean(AUTOMATIC_BACKPLATE_KEY, index == AUTOMATIC_BACKPLATE_INDEX)
             .apply()
     }
 

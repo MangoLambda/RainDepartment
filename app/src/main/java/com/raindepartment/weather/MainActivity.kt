@@ -193,12 +193,7 @@ internal fun RainDepartmentApp(
     val selectedRange = ForecastRange.valueOf(selectedRangeName)
     var selectedDayIndex by rememberSaveable { mutableIntStateOf(-1) }
     var unitSystem by remember { mutableStateOf(WeatherPreferences.unitSystem(context)) }
-    var selectedBackplateIndex by remember {
-        mutableIntStateOf(WeatherPreferences.backplateIndex(context))
-    }
-    val selectedBackplate = BackplateChoices.getOrNull(selectedBackplateIndex)
     val currentWeather = weatherState.snapshot?.forecast?.currentWeather()
-    val previewWeather = currentWeather?.forBackplate(selectedBackplate)
 
     val refreshForecast: () -> Unit = {
         weatherScope.launch {
@@ -288,9 +283,8 @@ internal fun RainDepartmentApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(unitSystem, selectedBackplateIndex, updateWidget) {
+    LaunchedEffect(unitSystem, updateWidget) {
         WeatherPreferences.setUnitSystem(context, unitSystem)
-        WeatherPreferences.setBackplateIndex(context, selectedBackplateIndex)
         if (updateWidget) WeatherWidget.updateAll(context.applicationContext)
     }
 
@@ -350,27 +344,9 @@ internal fun RainDepartmentApp(
                 }
 
                 DashboardTab.SETTINGS -> SettingsScreen(
-                    weather = previewWeather,
+                    weather = currentWeather,
                     unitSystem = unitSystem,
-                    selectedBackplate = selectedBackplate,
-                    selectedBackplateIndex = selectedBackplateIndex,
                     onUnitSystemSelected = { unitSystem = it },
-                    onPreviousBackplate = {
-                        selectedBackplateIndex = when {
-                            selectedBackplateIndex == WeatherPreferences.AUTOMATIC_BACKPLATE_INDEX ->
-                                BackplateChoices.lastIndex
-                            selectedBackplateIndex == 0 ->
-                                WeatherPreferences.AUTOMATIC_BACKPLATE_INDEX
-                            else -> selectedBackplateIndex - 1
-                        }
-                    },
-                    onNextBackplate = {
-                        selectedBackplateIndex = when {
-                            selectedBackplateIndex == BackplateChoices.lastIndex ->
-                                WeatherPreferences.AUTOMATIC_BACKPLATE_INDEX
-                            else -> selectedBackplateIndex + 1
-                        }
-                    },
                 )
 
                 else -> PlaceholderScreen(tab = selectedTab)
@@ -3195,11 +3171,7 @@ private fun ConditionIcon(condition: WeatherCondition, modifier: Modifier) {
 private fun SettingsScreen(
     weather: CurrentWeather?,
     unitSystem: UnitSystem,
-    selectedBackplate: BackplateChoice?,
-    selectedBackplateIndex: Int,
     onUnitSystemSelected: (UnitSystem) -> Unit,
-    onPreviousBackplate: () -> Unit,
-    onNextBackplate: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -3231,17 +3203,11 @@ private fun SettingsScreen(
                 Spacer(modifier = Modifier.width(6.dp))
                 Column {
                     Text(text = "Widget appearance", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text(text = "Use the live condition or choose an illustrated backplate.", color = MutedNavy, fontSize = 11.sp)
+                    Text(text = "Follows the live condition shown in the app.", color = MutedNavy, fontSize = 11.sp)
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))
             WeatherPreviewCard(weather = weather, unitSystem = unitSystem)
-            BackplateBrowser(
-                selected = selectedBackplate,
-                index = selectedBackplateIndex,
-                onPrevious = onPreviousBackplate,
-                onNext = onNextBackplate,
-            )
         }
         OpenMeteoAttribution()
     }
@@ -3363,45 +3329,6 @@ private fun WeatherPreviewCard(weather: CurrentWeather?, unitSystem: UnitSystem)
                 color = Color.White,
                 fontSize = 11.sp,
             )
-        }
-    }
-}
-
-@Composable
-private fun BackplateBrowser(
-    selected: BackplateChoice?,
-    index: Int,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        TextButton(onClick = onPrevious) {
-            Icon(imageVector = Icons.Outlined.ChevronLeft, contentDescription = null)
-            Text(text = "Previous")
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = selected?.label ?: "Automatic (live condition)",
-                color = Navy,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = "${if (index == WeatherPreferences.AUTOMATIC_BACKPLATE_INDEX) 1 else index + 2} " +
-                    "of ${BackplateChoices.size + 1}",
-                color = MutedNavy,
-                fontSize = 10.sp,
-            )
-        }
-        TextButton(onClick = onNext) {
-            Text(text = "Next")
-            Icon(imageVector = Icons.Outlined.ChevronRight, contentDescription = null)
         }
     }
 }

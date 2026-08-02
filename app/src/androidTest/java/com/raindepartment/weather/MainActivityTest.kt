@@ -69,6 +69,7 @@ class MainActivityTest {
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Temperature units").assertIsDisplayed()
         composeRule.onNodeWithText("Widget appearance").assertIsDisplayed()
+        composeRule.onNodeWithText("Follows the live condition shown in the app.").assertIsDisplayed()
         composeRule.onNodeWithText("Imperial").performClick()
         composeRule.onNodeWithText("°F · mph").assertIsDisplayed()
 
