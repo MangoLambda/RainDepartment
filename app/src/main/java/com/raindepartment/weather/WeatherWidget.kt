@@ -7,6 +7,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -227,14 +229,33 @@ private fun WeatherWidgetContent(
                                 ),
                             )
                             Spacer(modifier = GlanceModifier.height(4.dp))
-                            Text(
-                                text = "${forecast.precipitationChance}% precip  ·  ${forecast.rainStartsIn}",
-                                style = TextStyle(
-                                    color = WidgetWhite,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${forecast.precipitationChance}%",
+                                    style = TextStyle(
+                                        color = WidgetWhite,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                )
+                                Spacer(modifier = GlanceModifier.width(3.dp))
+                                Image(
+                                    provider = ImageProvider(R.drawable.ic_precipitation),
+                                    contentDescription = "Precipitation",
+                                    modifier = GlanceModifier
+                                        .width(12.dp)
+                                        .height(12.dp),
+                                )
+                                Spacer(modifier = GlanceModifier.width(3.dp))
+                                Text(
+                                    text = "·  ${forecast.rainStartsIn}",
+                                    style = TextStyle(
+                                        color = WidgetWhite,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                )
+                            }
                             Spacer(modifier = GlanceModifier.height(2.dp))
                             Text(
                                 text = weather.highLow(unitSystem),
