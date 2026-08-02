@@ -207,19 +207,7 @@ internal object WeatherSnapshotCodec {
         put("peakWindMph", forecast.peakWindMph)
         put("peakWindDirection", forecast.peakWindDirection)
         put("peakWindTime", forecast.peakWindTime)
-        put("hourly", JSONArray().apply {
-            forecast.hourly.forEach { item ->
-                put(JSONObject().apply {
-                    put("time", item.time)
-                    put("precipitationChance", item.precipitationChance)
-                    put("rainfallInches", item.rainfallInches)
-                    put("temperatureFahrenheit", item.temperatureFahrenheit)
-                    put("windMph", item.windMph)
-                    put("windDirection", item.windDirection)
-                    put("windDirectionLabel", item.windDirectionLabel)
-                })
-            }
-        })
+        put("hourly", encodeHourly(forecast.hourly))
         put("precipitation24h", encodeChart(forecast.precipitation24h))
         put("windByHour", encodeChart(forecast.windByHour))
         put("daily", JSONArray().apply {
@@ -232,6 +220,13 @@ internal object WeatherSnapshotCodec {
                     put("rainfallInches", item.rainfallInches)
                     put("highFahrenheit", item.highFahrenheit)
                     put("lowFahrenheit", item.lowFahrenheit)
+                    put("sunrise", item.sunrise)
+                    put("sunset", item.sunset)
+                    put("peakWindMph", item.peakWindMph)
+                    put("peakWindDirection", item.peakWindDirection)
+                    put("peakWindTime", item.peakWindTime)
+                    put("dryWindow", item.dryWindow)
+                    put("hourly", encodeHourly(item.hourly))
                 })
             }
         })
@@ -276,6 +271,20 @@ internal object WeatherSnapshotCodec {
         dryWindow = root.getString("dryWindow"),
     )
 
+    private fun encodeHourly(hourly: List<HourlyForecast>): JSONArray = JSONArray().apply {
+        hourly.forEach { item ->
+            put(JSONObject().apply {
+                put("time", item.time)
+                put("precipitationChance", item.precipitationChance)
+                put("rainfallInches", item.rainfallInches)
+                put("temperatureFahrenheit", item.temperatureFahrenheit)
+                put("windMph", item.windMph)
+                put("windDirection", item.windDirection)
+                put("windDirectionLabel", item.windDirectionLabel)
+            })
+        }
+    }
+
     private fun decodeHourly(array: JSONArray): List<HourlyForecast> = buildList(array.length()) {
         for (index in 0 until array.length()) {
             val root = array.getJSONObject(index)
@@ -305,6 +314,13 @@ internal object WeatherSnapshotCodec {
                     rainfallInches = root.getDouble("rainfallInches"),
                     highFahrenheit = root.getInt("highFahrenheit"),
                     lowFahrenheit = root.getInt("lowFahrenheit"),
+                    sunrise = root.optString("sunrise", ""),
+                    sunset = root.optString("sunset", ""),
+                    peakWindMph = root.optInt("peakWindMph", 0),
+                    peakWindDirection = root.optString("peakWindDirection", ""),
+                    peakWindTime = root.optString("peakWindTime", ""),
+                    dryWindow = root.optString("dryWindow", ""),
+                    hourly = root.optJSONArray("hourly")?.let(::decodeHourly).orEmpty(),
                 ),
             )
         }

@@ -54,6 +54,17 @@ class MainActivityTest {
     }
 
     @Test
+    fun tappingAForecastDayShowsItsDetailAndReturnsToOutlook() {
+        composeRule.onNodeWithText("7 Days").performClick()
+        composeRule.onNodeWithContentDescription("View Sun forecast").performClick()
+
+        composeRule.onNodeWithText("Sun forecast").assertIsDisplayed()
+        composeRule.onNodeWithText("Hourly forecast").assertIsDisplayed()
+        composeRule.onNodeWithText("7-Day Outlook").performClick()
+        composeRule.onNodeWithText("Next 7 Days Outlook").assertIsDisplayed()
+    }
+
+    @Test
     fun settingsKeepsUnitAndWidgetControls() {
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Temperature units").assertIsDisplayed()
@@ -118,8 +129,32 @@ class MainActivityTest {
                 hourly = listOf(HourlyForecast("Now", 30, 0.0, 84, 8, "N", "N")),
                 precipitation24h = listOf(ChartPoint("Now", 0.0f)),
                 windByHour = listOf(ChartPoint("Now", 8.0f)),
-                daily = listOf(DailyForecast("Today", WeatherCondition.RAIN, "Rain", 80, 0.68, 89, 73)),
-                rainfallOutlook = listOf(ChartPoint("Today", 0.68f)),
+                daily = listOf(
+                    DailyForecast("Today", WeatherCondition.RAIN, "Rain", 80, 0.68, 89, 73),
+                    DailyForecast(
+                        day = "Sun",
+                        condition = WeatherCondition.CLEAR,
+                        conditionLabel = "Clear",
+                        precipitationChance = 10,
+                        rainfallInches = 0.02,
+                        highFahrenheit = 92,
+                        lowFahrenheit = 75,
+                        sunrise = "6:31 AM",
+                        sunset = "8:33 PM",
+                        peakWindMph = 12,
+                        peakWindDirection = "S",
+                        peakWindTime = "3 PM",
+                        dryWindow = "All day",
+                        hourly = listOf(
+                            HourlyForecast("12 AM", 0, 0.0, 76, 4, "S", "S"),
+                            HourlyForecast("12 PM", 10, 0.0, 90, 12, "S", "S"),
+                        ),
+                    ),
+                ),
+                rainfallOutlook = listOf(
+                    ChartPoint("Today", 0.68f),
+                    ChartPoint("Sun", 0.02f),
+                ),
                 sunrise = "6:32 AM",
                 sunset = "8:32 PM",
                 dryWindow = "5 PM – 8 PM",

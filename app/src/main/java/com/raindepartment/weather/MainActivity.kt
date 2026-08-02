@@ -105,6 +105,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -189,6 +191,7 @@ internal fun RainDepartmentApp(
     val selectedTab = DashboardTab.valueOf(selectedTabName)
     var selectedRangeName by rememberSaveable { mutableStateOf(ForecastRange.TODAY.name) }
     val selectedRange = ForecastRange.valueOf(selectedRangeName)
+    var selectedDayIndex by rememberSaveable { mutableIntStateOf(-1) }
     var unitSystem by remember { mutableStateOf(WeatherPreferences.unitSystem(context)) }
     var selectedBackplateIndex by remember {
         mutableIntStateOf(WeatherPreferences.backplateIndex(context))
@@ -230,6 +233,7 @@ internal fun RainDepartmentApp(
         }
     }
     val selectCity: (WeatherLocation) -> Unit = { location ->
+        selectedDayIndex = -1
         selectedCityLocation = location
         WeatherPreferences.setSelectedLocation(context, location)
         weatherScope.launch {
@@ -322,7 +326,16 @@ internal fun RainDepartmentApp(
                             unitSystem = unitSystem,
                             backgroundWeather = snapshot.forecast.currentWeather(),
                             selectedRange = selectedRange,
-                            onRangeSelected = { selectedRangeName = it.name },
+                            onRangeSelected = {
+                                selectedRangeName = it.name
+                                selectedDayIndex = -1
+                            },
+                            selectedDayIndex = selectedDayIndex,
+                            onDaySelected = {
+                                selectedRangeName = ForecastRange.SEVEN_DAYS.name
+                                selectedDayIndex = it
+                            },
+                            onDayDetailBack = { selectedDayIndex = -1 },
                             isRefreshing = weatherState.isRefreshing,
                             isStale = weatherState.isStale,
                             errorMessage = weatherState.errorMessage,
@@ -1122,6 +1135,9 @@ private fun BriefingScreen(
     backgroundWeather: CurrentWeather,
     selectedRange: ForecastRange,
     onRangeSelected: (ForecastRange) -> Unit,
+    selectedDayIndex: Int,
+    onDaySelected: (Int) -> Unit,
+    onDayDetailBack: () -> Unit,
     isRefreshing: Boolean,
     isStale: Boolean,
     errorMessage: String?,
@@ -1136,6 +1152,9 @@ private fun BriefingScreen(
             backgroundWeather = backgroundWeather,
             selectedRange = selectedRange,
             onRangeSelected = onRangeSelected,
+            selectedDayIndex = selectedDayIndex,
+            onDaySelected = onDaySelected,
+            onDayDetailBack = onDayDetailBack,
             isRefreshing = isRefreshing,
             isStale = isStale,
             errorMessage = errorMessage,
@@ -1165,6 +1184,9 @@ private fun BriefingScreen(
             backgroundWeather = backgroundWeather,
             selectedRange = selectedRange,
             onRangeSelected = onRangeSelected,
+            selectedDayIndex = selectedDayIndex,
+            onDaySelected = onDaySelected,
+            onDayDetailBack = onDayDetailBack,
             isRefreshing = isRefreshing,
             isStale = isStale,
             errorMessage = errorMessage,
@@ -1282,6 +1304,9 @@ private fun BriefingContent(
     backgroundWeather: CurrentWeather,
     selectedRange: ForecastRange,
     onRangeSelected: (ForecastRange) -> Unit,
+    selectedDayIndex: Int,
+    onDaySelected: (Int) -> Unit,
+    onDayDetailBack: () -> Unit,
     isRefreshing: Boolean,
     isStale: Boolean,
     errorMessage: String?,
@@ -1303,12 +1328,23 @@ private fun BriefingContent(
             selected = selectedRange,
             onSelected = onRangeSelected,
         )
-        if (selectedRange == ForecastRange.SEVEN_DAYS) {
+        val selectedDay = forecast.daily.getOrNull(selectedDayIndex)
+        if (selectedDay != null) {
+            DailyForecastDetailContent(
+                forecast = forecast,
+                day = selectedDay,
+                dayIndex = selectedDayIndex,
+                unitSystem = unitSystem,
+                onBack = onDayDetailBack,
+                onLocationClick = onLocationClick,
+            )
+        } else if (selectedRange == ForecastRange.SEVEN_DAYS) {
             SevenDayOutlookContent(
                 forecast = forecast,
                 unitSystem = unitSystem,
                 backgroundWeather = backgroundWeather,
                 onLocationClick = onLocationClick,
+                onDaySelected = onDaySelected,
             )
         } else {
             WeatherHeroCard(
@@ -1323,7 +1359,9 @@ private fun BriefingContent(
                 right = { childModifier -> WindCard(childModifier, forecast, unitSystem) },
             )
             AdaptiveTwoColumn(
-                left = { childModifier -> SevenDayForecastCard(childModifier, forecast, unitSystem) },
+                left = { childModifier ->
+                    SevenDayForecastCard(childModifier, forecast, unitSystem, onDaySelected)
+                },
                 right = { childModifier ->
                     Column(
                         modifier = childModifier,
@@ -1691,6 +1729,7 @@ private fun SevenDayOutlookContent(
     unitSystem: UnitSystem,
     backgroundWeather: CurrentWeather,
     onLocationClick: () -> Unit,
+    onDaySelected: (Int) -> Unit,
 ) {
     val days = forecast.daily.take(7)
     if (days.isEmpty()) {
@@ -1714,6 +1753,7 @@ private fun SevenDayOutlookContent(
         forecast = forecast,
         days = days,
         unitSystem = unitSystem,
+        onDaySelected = onDaySelected,
     )
     SevenDayPrecipitationCard(
         forecast = forecast,
@@ -1748,6 +1788,397 @@ private fun SevenDayOutlookContent(
             )
         }
     }
+}
+
+@Composable
+private fun DailyForecastDetailContent(
+    forecast: DashboardForecast,
+    day: DailyForecast,
+    dayIndex: Int,
+    unitSystem: UnitSystem,
+    onBack: () -> Unit,
+    onLocationClick: () -> Unit,
+) {
+    val hourly = day.hourly.ifEmpty { if (dayIndex == 0) forecast.hourly else emptyList() }
+    val peakWindMph = day.peakWindMph.takeIf { it > 0 } ?: forecast.peakWindMph
+    val peakWindDirection = day.peakWindDirection.ifBlank { forecast.peakWindDirection }
+    val detailForecast = forecast.copy(
+        highFahrenheit = day.highFahrenheit,
+        lowFahrenheit = day.lowFahrenheit,
+        conditionLabel = day.conditionLabel,
+        precipitationChance = day.precipitationChance,
+        expectedRainInches = day.rainfallInches,
+        peakWindMph = peakWindMph,
+        peakWindDirection = peakWindDirection,
+        peakWindTime = day.peakWindTime.ifBlank { forecast.peakWindTime },
+        sunrise = day.sunrise.ifBlank { forecast.sunrise },
+        sunset = day.sunset.ifBlank { forecast.sunset },
+        dryWindow = day.dryWindow.ifBlank { forecast.dryWindow },
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = onBack,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ChevronLeft,
+                    contentDescription = null,
+                    tint = AccentBlue,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+                Text(text = "7-Day Outlook", color = AccentBlue, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "Day details",
+                color = MutedNavy,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        DailyWeatherHeroCard(
+            forecast = forecast,
+            day = day,
+            dayIndex = dayIndex,
+            unitSystem = unitSystem,
+            peakWindMph = peakWindMph,
+            peakWindDirection = peakWindDirection,
+            onLocationClick = onLocationClick,
+        )
+        if (hourly.isNotEmpty()) {
+            HourlyForecastCard(
+                hourly = hourly,
+                unitSystem = unitSystem,
+                title = "Hourly forecast",
+                action = "All day",
+            )
+            AdaptiveTwoColumn(
+                left = { childModifier ->
+                    DailyPrecipitationCard(childModifier, forecast, day, hourly, unitSystem)
+                },
+                right = { childModifier ->
+                    DailyWindCard(
+                        modifier = childModifier,
+                        forecast = forecast,
+                        day = day,
+                        hourly = hourly,
+                        unitSystem = unitSystem,
+                        peakWindMph = peakWindMph,
+                        peakWindDirection = peakWindDirection,
+                    )
+                },
+            )
+        }
+        AdaptiveTwoColumn(
+            left = { childModifier ->
+                SunriseSunsetCard(childModifier, detailForecast)
+            },
+            right = { childModifier ->
+                DryWindowCard(childModifier, detailForecast)
+            },
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            color = Color(0xFFE5F1FC),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = AccentBlue,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "Daily conditions are forecast values and can change.",
+                    color = DeepBlue,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyWeatherHeroCard(
+    forecast: DashboardForecast,
+    day: DailyForecast,
+    dayIndex: Int,
+    unitSystem: UnitSystem,
+    peakWindMph: Int,
+    peakWindDirection: String,
+    onLocationClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    val dayWeather = remember(context, day.condition) {
+        CurrentWeather(
+            location = forecast.location,
+            condition = day.condition,
+            conditionLabel = day.conditionLabel,
+            isDay = true,
+            currentFahrenheit = day.highFahrenheit,
+            highFahrenheit = day.highFahrenheit,
+            lowFahrenheit = day.lowFahrenheit,
+            precipitationChance = day.precipitationChance,
+        )
+    }
+    val bitmap = remember(context, dayWeather.condition, dayWeather.isDay) {
+        BackplateLoader.bitmap(context, dayWeather)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(204.dp)
+                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
+            ) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "${day.conditionLabel} forecast for ${day.day}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color(0xE6EAF7FF),
+                                    Color(0xBBD7F1FF),
+                                    Color(0x150E7DC7),
+                                ),
+                            ),
+                        ),
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onLocationClick),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.LocationOn,
+                            contentDescription = null,
+                            tint = DeepBlue,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = forecast.location,
+                            modifier = Modifier.weight(1f),
+                            color = DeepBlue,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.ChevronRight,
+                            contentDescription = "Choose city",
+                            tint = DeepBlue,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (dayIndex == 0) "Today" else "${day.day} forecast",
+                        color = Navy,
+                        fontSize = 27.sp,
+                        lineHeight = 30.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Row(
+                        modifier = Modifier.padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ConditionIcon(day.condition, Modifier.size(25.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = day.conditionLabel,
+                            color = Navy,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            text = forecast.temperature(day.highFahrenheit, unitSystem),
+                            color = DarkBlue,
+                            fontSize = 52.sp,
+                            lineHeight = 54.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Column(modifier = Modifier.padding(start = 12.dp, bottom = 6.dp)) {
+                            Text(
+                                text = "High",
+                                color = Navy,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                text = "Low ${forecast.temperature(day.lowFahrenheit, unitSystem)}",
+                                color = Navy,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(66.dp)
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HeroMetric(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.WaterDrop,
+                    value = "${day.precipitationChance}%",
+                    label = "Chance of Rain",
+                )
+                MetricDivider()
+                HeroMetric(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.WaterDrop,
+                    value = forecast.precipitation(day.rainfallInches, unitSystem),
+                    label = "Total Rain",
+                )
+                MetricDivider()
+                HeroMetric(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Air,
+                    value = forecast.windSpeed(peakWindMph, unitSystem),
+                    label = "Peak Wind ($peakWindDirection)",
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyPrecipitationCard(
+    modifier: Modifier,
+    forecast: DashboardForecast,
+    day: DailyForecast,
+    hourly: List<HourlyForecast>,
+    unitSystem: UnitSystem,
+) {
+    DashboardCard(modifier = modifier) {
+        SectionHeader(title = "Precipitation by Hour", action = "All day", icon = Icons.Outlined.WaterDrop)
+        Spacer(modifier = Modifier.height(5.dp))
+        AreaChart(
+            points = hourlyChartPoints(hourly) { it.rainfallInches.toFloat() },
+            lineColor = ChartBlue,
+            fillColor = ChartBlue.copy(alpha = 0.25f),
+            maxValue = max(0.1f, hourly.maxOfOrNull { it.rainfallInches.toFloat() } ?: 0.1f),
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.WaterDrop,
+                contentDescription = null,
+                tint = AccentBlue,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Column {
+                Text(
+                    text = "${forecast.precipitation(day.rainfallInches, unitSystem)} total",
+                    color = DeepBlue,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "Expected throughout the day",
+                    color = MutedNavy,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyWindCard(
+    modifier: Modifier,
+    forecast: DashboardForecast,
+    day: DailyForecast,
+    hourly: List<HourlyForecast>,
+    unitSystem: UnitSystem,
+    peakWindMph: Int,
+    peakWindDirection: String,
+) {
+    DashboardCard(modifier = modifier) {
+        SectionHeader(title = "Wind by Hour", action = "All day", icon = Icons.Outlined.Air)
+        Spacer(modifier = Modifier.height(5.dp))
+        LineChart(
+            points = hourlyChartPoints(hourly) { it.windMph.toFloat() },
+            lineColor = Aqua,
+            fillColor = Aqua.copy(alpha = 0.12f),
+            maxValue = max(1f, hourly.maxOfOrNull { it.windMph.toFloat() } ?: 1f),
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.Air,
+                contentDescription = null,
+                tint = Aqua,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Column {
+                Text(
+                    text = forecast.windSpeed(peakWindMph, unitSystem),
+                    color = DeepBlue,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "Peak wind${day.peakWindTime.takeIf { it.isNotBlank() }?.let { " at $it" } ?: ""} ($peakWindDirection)",
+                    color = MutedNavy,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+    }
+}
+
+private fun hourlyChartPoints(
+    hourly: List<HourlyForecast>,
+    value: (HourlyForecast) -> Float,
+): List<ChartPoint> {
+    val sampled = if (hourly.size <= 8) {
+        hourly
+    } else {
+        hourly.filterIndexed { index, _ -> index % 3 == 0 || index == hourly.lastIndex }
+    }
+    return sampled.map { ChartPoint(it.time, value(it)) }
 }
 
 @Composable
@@ -1935,6 +2366,7 @@ private fun SevenDayDailyStrip(
     forecast: DashboardForecast,
     days: List<DailyForecast>,
     unitSystem: UnitSystem,
+    onDaySelected: (Int) -> Unit,
 ) {
     DashboardCard(modifier = Modifier.fillMaxWidth()) {
         SectionHeader(title = "Daily Forecast", action = "Next 7 Days", icon = Icons.Outlined.Cloud)
@@ -1949,7 +2381,11 @@ private fun SevenDayDailyStrip(
                 Surface(
                     modifier = Modifier
                         .width(78.dp)
-                        .height(148.dp),
+                        .height(148.dp)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = "View ${day.day} forecast"
+                        }
+                        .clickable { onDaySelected(index) },
                     shape = RoundedCornerShape(15.dp),
                     color = if (index == 0) Color(0xFFEAF5FF) else Color.White,
                     border = BorderStroke(
@@ -2165,9 +2601,11 @@ private fun sevenDaySummary(days: List<DailyForecast>): String {
 private fun HourlyForecastCard(
     hourly: List<HourlyForecast>,
     unitSystem: UnitSystem,
+    title: String = "Hourly Precipitation, Temperature & Wind",
+    action: String = "Next 10 Hours",
 ) {
     DashboardCard(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(title = "Hourly Precipitation, Temperature & Wind", action = "Next 10 Hours")
+        SectionHeader(title = title, action = action)
         Spacer(modifier = Modifier.height(8.dp))
         Column(modifier = Modifier.horizontalScroll(rememberScrollState())) {
             HourlyHeaderRow(hourly)
@@ -2411,15 +2849,20 @@ private fun SevenDayForecastCard(
     modifier: Modifier,
     forecast: DashboardForecast,
     unitSystem: UnitSystem,
+    onDaySelected: (Int) -> Unit,
 ) {
     DashboardCard(modifier = modifier) {
         SectionHeader(title = "7-Day Forecast", action = "More Details")
         Spacer(modifier = Modifier.height(3.dp))
-        forecast.daily.forEach { day ->
+        forecast.daily.forEachIndexed { index, day ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 30.dp),
+                    .heightIn(min = 30.dp)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "View ${day.day} forecast"
+                    }
+                    .clickable { onDaySelected(index) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(

@@ -146,6 +146,24 @@ internal object GemWeatherParser {
         ).forEach { requireLength("daily", dailyLength, it) }
         if (dailyLength == 0) throw GemDataException("Open-Meteo returned no daily data.")
 
+        val allHourlyRows = hourlyTimes.indices.map { index ->
+            ForecastHour(
+                time = hourlyTimes[index],
+                precipitationChance = hourlyChance[index].roundToInt().coerceIn(0, 100),
+                precipitationInches = hourlyPrecipitation[index].coerceAtLeast(0.0),
+                windMph = hourlyWind[index].coerceAtLeast(0.0),
+            )
+        }
+        fun hourlyForecast(index: Int, time: String = formatHour(hourlyTimes[index])) = HourlyForecast(
+            time = time,
+            precipitationChance = hourlyChance[index].roundToInt().coerceIn(0, 100),
+            rainfallInches = hourlyPrecipitation[index].coerceAtLeast(0.0),
+            temperatureFahrenheit = hourlyTemperature[index].roundToInt(),
+            windMph = hourlyWind[index].roundToInt().coerceAtLeast(0),
+            windDirection = compassDirection(hourlyDirections[index]),
+            windDirectionLabel = compassDirection(hourlyDirections[index]),
+        )
+
         val currentTime = parseApiTime(current.requiredString("time"), zoneId)
         val currentIndex = hourlyTimes.indices.minByOrNull { index ->
             abs(Duration.between(currentTime, hourlyTimes[index]).toMinutes())
@@ -165,15 +183,7 @@ internal object GemWeatherParser {
         val visibleIndices = (currentIndex until hourlyLength).take(10)
         val chartIndices = (currentIndex until hourlyLength).take(24)
         val hourlyForecast = visibleIndices.mapIndexed { visibleIndex, index ->
-            HourlyForecast(
-                time = if (visibleIndex == 0) "Now" else formatHour(hourlyTimes[index]),
-                precipitationChance = hourlyChance[index].roundToInt().coerceIn(0, 100),
-                rainfallInches = hourlyPrecipitation[index].coerceAtLeast(0.0),
-                temperatureFahrenheit = hourlyTemperature[index].roundToInt(),
-                windMph = hourlyWind[index].roundToInt().coerceAtLeast(0),
-                windDirection = compassDirection(hourlyDirections[index]),
-                windDirectionLabel = compassDirection(hourlyDirections[index]),
-            )
+            hourlyForecast(index, time = if (visibleIndex == 0) "Now" else formatHour(hourlyTimes[index]))
         }
 
         val rainIndex = (currentIndex until hourlyLength).firstOrNull {
@@ -187,6 +197,9 @@ internal object GemWeatherParser {
 
         val dailyForecast = dailyTimes.indices.map { index ->
             val condition = conditionForCode(dailyCodes[index].roundToInt())
+            val dayIndices = hourlyTimes.indices.filter { hourlyTimes[it].toLocalDate() == dailyTimes[index] }
+            val dayRows = dayIndices.map { allHourlyRows[it] }
+            val dayPeakIndex = dayIndices.maxByOrNull { hourlyWind[it] }
             DailyForecast(
                 day = if (index == 0) "Today" else dailyTimes[index]
                     .atStartOfDay(zoneId)
@@ -197,17 +210,17 @@ internal object GemWeatherParser {
                 rainfallInches = dailyRain[index].coerceAtLeast(0.0),
                 highFahrenheit = dailyHighs[index].roundToInt(),
                 lowFahrenheit = dailyLows[index].roundToInt(),
+                sunrise = parseApiTime(dailySunrise[index], zoneId).format(clockFormatter),
+                sunset = parseApiTime(dailySunset[index], zoneId).format(clockFormatter),
+                peakWindMph = dailyWind[index].roundToInt().coerceAtLeast(0),
+                peakWindDirection = compassDirection(dailyWindDirections[index]),
+                peakWindTime = dayPeakIndex?.let { formatHour(hourlyTimes[it]) } ?: "",
+                dryWindow = dryWindow(dayRows),
+                hourly = dayIndices.map { hourlyForecast(it) },
             )
         }
 
-        val chartRows = chartIndices.map { index ->
-            ForecastHour(
-                time = hourlyTimes[index],
-                precipitationChance = hourlyChance[index].roundToInt().coerceIn(0, 100),
-                precipitationInches = hourlyPrecipitation[index].coerceAtLeast(0.0),
-                windMph = hourlyWind[index].coerceAtLeast(0.0),
-            )
-        }
+        val chartRows = chartIndices.map { allHourlyRows[it] }
         val chartRowsSampled = chartRows.filterIndexed { index, _ -> index % 3 == 0 }
         val precipitationChart = chartRowsSampled.mapIndexed { index, row ->
             ChartPoint(

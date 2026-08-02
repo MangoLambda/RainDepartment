@@ -35,6 +35,13 @@ internal data class DailyForecast(
     val rainfallInches: Double,
     val highFahrenheit: Int,
     val lowFahrenheit: Int,
+    val sunrise: String = "",
+    val sunset: String = "",
+    val peakWindMph: Int = 0,
+    val peakWindDirection: String = "",
+    val peakWindTime: String = "",
+    val dryWindow: String = "",
+    val hourly: List<HourlyForecast> = emptyList(),
 )
 
 internal data class ChartPoint(
