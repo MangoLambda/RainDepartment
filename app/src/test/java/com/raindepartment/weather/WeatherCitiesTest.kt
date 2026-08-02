@@ -32,6 +32,13 @@ class WeatherCitiesTest {
     }
 
     @Test
+    fun searchIncludesBromontAndRegionalCanadianCities() {
+        assertTrue(WeatherCities.search("Bromont").any { it.label == "Bromont, Quebec" })
+        assertTrue(WeatherCities.search("Chicoutimi").any { it.label == "Saguenay, Quebec" })
+        assertTrue(WeatherCities.search("Fort McMurray").any { it.label == "Fort McMurray, Alberta" })
+    }
+
+    @Test
     fun nearestCitiesFollowTheSelectedLocation() {
         val newYork = WeatherCities.all.first { it.label == "New York, New York" }
         val nearbyLabels = WeatherCities.nearestTo(newYork.location, limit = 4).map { it.label }

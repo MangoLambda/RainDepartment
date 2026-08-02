@@ -127,6 +127,13 @@ class MainActivityTest {
         composeRule.onNodeWithText("Denver, Colorado").assertIsDisplayed()
     }
 
+    @Test
+    fun cityPickerSearchFindsBromont() {
+        composeRule.onNodeWithContentDescription("Choose city").performClick()
+        composeRule.onNode(hasSetTextAction()).performTextInput("Bromont")
+        composeRule.onNodeWithText("Bromont, Quebec").assertIsDisplayed()
+    }
+
     private object FakeWeatherRepository {
         fun create(): WeatherRepository = WeatherRepository(
             client = object : GemWeatherClient {

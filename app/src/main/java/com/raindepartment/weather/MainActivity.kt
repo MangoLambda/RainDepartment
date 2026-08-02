@@ -84,6 +84,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -645,6 +646,20 @@ private fun CityPickerDialog(
                         tint = MutedNavy,
                     )
                 },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = DeepBlue,
+                    unfocusedTextColor = DeepBlue,
+                    disabledTextColor = DeepBlue,
+                    focusedPlaceholderColor = MutedNavy,
+                    unfocusedPlaceholderColor = MutedNavy,
+                    focusedLeadingIconColor = AccentBlue,
+                    unfocusedLeadingIconColor = MutedNavy,
+                    focusedBorderColor = AccentBlue,
+                    unfocusedBorderColor = Color(0xFF9CCEF0),
+                    cursorColor = AccentBlue,
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
+                ),
                 shape = RoundedCornerShape(15.dp),
             )
             Spacer(modifier = Modifier.height(14.dp))
