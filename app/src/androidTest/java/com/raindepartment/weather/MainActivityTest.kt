@@ -26,6 +26,7 @@ class MainActivityTest {
             RainDepartmentTheme {
                 RainDepartmentApp(
                     repository = FakeWeatherRepository.create(),
+                    radarClient = FakeRadarMapClient,
                     requestLocationPermission = false,
                     checkForUpdates = false,
                     updateWidget = false,
@@ -75,6 +76,23 @@ class MainActivityTest {
 
         composeRule.onNodeWithText("Briefing").performClick()
         composeRule.onNodeWithText("Rain starts in").assertIsDisplayed()
+    }
+
+    @Test
+    fun radarTabShowsEcccTimelineAndRefreshCadence() {
+        composeRule.onNodeWithText("Radar").performClick()
+        composeRule.waitUntil(3_000) {
+            composeRule
+                .onAllNodesWithText("Latest frame", substring = true)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+
+        composeRule.onNodeWithText("Rain arriving in ~1h").assertIsDisplayed()
+        composeRule.onNodeWithText("Confidence: Medium").assertIsDisplayed()
+        composeRule.onNodeWithText("Radar updates", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Radar data updates every 6 minutes")
+            .assertIsDisplayed()
     }
 
     @Test
@@ -161,5 +179,30 @@ class MainActivityTest {
                 dryWindow = "5 PM – 8 PM",
             ),
         )
+    }
+
+    private object FakeRadarMapClient : EcccRadarMapClient {
+        private const val INTERVAL_MILLIS = 6 * 60_000L
+
+        override suspend fun fetchLatest(
+            location: WeatherLocation,
+            nowEpochMillis: Long,
+        ): EcccRadarMapData {
+            val end = nowEpochMillis - (nowEpochMillis % INTERVAL_MILLIS)
+            val window = EcccRadarTimeWindow(
+                startEpochMillis = end - 30 * INTERVAL_MILLIS,
+                endEpochMillis = end,
+                intervalMillis = INTERVAL_MILLIS,
+            )
+            return EcccRadarMapData(
+                window = window,
+                frame = EcccRadarMapFrame(end, ByteArray(0)),
+            )
+        }
+
+        override suspend fun fetchFrame(
+            location: WeatherLocation,
+            timeEpochMillis: Long,
+        ): EcccRadarMapFrame = EcccRadarMapFrame(timeEpochMillis, ByteArray(0))
     }
 }

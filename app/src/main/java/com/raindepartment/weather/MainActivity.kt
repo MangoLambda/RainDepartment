@@ -3,6 +3,7 @@ package com.raindepartment.weather
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Build
 import android.view.MotionEvent
@@ -57,9 +58,14 @@ import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GpsFixed
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.LocationCity
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SkipNext
+import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Umbrella
@@ -77,6 +83,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -121,12 +128,18 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.raindepartment.weather.update.AppUpdateManager
 import com.raindepartment.weather.update.UpdateRelease
 import com.raindepartment.weather.update.UpdateUiState
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import java.util.Locale
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -153,6 +166,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 internal fun RainDepartmentApp(
     repository: WeatherRepository? = null,
+    radarClient: EcccRadarMapClient? = null,
     requestLocationPermission: Boolean = true,
     checkForUpdates: Boolean = true,
     updateWidget: Boolean = true,
@@ -164,6 +178,9 @@ internal fun RainDepartmentApp(
     val lifecycleOwner = LocalLifecycleOwner.current
     val weatherRepository = repository ?: remember(context) {
         WeatherRepositoryFactory.create(context.applicationContext)
+    }
+    val radarMapClient = radarClient ?: remember(context) {
+        HttpEcccRadarClient()
     }
     val weatherState by weatherRepository.state.collectAsStateWithLifecycle()
     val weatherScope = rememberCoroutineScope()
@@ -388,6 +405,12 @@ internal fun RainDepartmentApp(
                     weather = currentWeather,
                     unitSystem = unitSystem,
                     onUnitSystemSelected = { unitSystem = it },
+                )
+
+                DashboardTab.RADAR -> RadarScreen(
+                    location = weatherState.snapshot?.location ?: selectedCityLocation,
+                    forecast = weatherState.snapshot?.forecast,
+                    radarClient = radarMapClient,
                 )
 
                 else -> PlaceholderScreen(tab = selectedTab)
@@ -1127,6 +1150,774 @@ private fun DashboardTab.icon(): ImageVector = when (this) {
     DashboardTab.RADAR -> Icons.Outlined.GpsFixed
     DashboardTab.OUTLOOK -> Icons.Outlined.BarChart
     DashboardTab.SETTINGS -> Icons.Outlined.Settings
+}
+
+private const val RADAR_SCREEN_REFRESH_INTERVAL_MILLIS = 6 * 60_000L
+
+private data class RadarUiState(
+    val window: EcccRadarTimeWindow? = null,
+    val frame: EcccRadarMapFrame? = null,
+    val isLoading: Boolean = true,
+    val errorMessage: String? = null,
+)
+
+@Composable
+private fun RadarScreen(
+    location: WeatherLocation?,
+    forecast: DashboardForecast?,
+    radarClient: EcccRadarMapClient,
+) {
+    var state by remember(location) { mutableStateOf(RadarUiState()) }
+    var selectedFrameTime by remember(location) { mutableStateOf<Long?>(null) }
+    var isPlaying by remember(location) { mutableStateOf(false) }
+    val radarScope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(location, radarClient, lifecycleOwner) {
+        if (location == null) {
+            state = RadarUiState(isLoading = false)
+            return@LaunchedEffect
+        }
+
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                val result = runCatching {
+                    radarClient.fetchLatest(
+                        location = location,
+                        nowEpochMillis = System.currentTimeMillis(),
+                    )
+                }
+                val data = result.getOrNull()
+                val selected = selectedFrameTime
+                if (data != null) {
+                    val selectedIsAvailable = selected != null &&
+                        data.window.frameTimes().contains(selected)
+                    state = if (selectedIsAvailable) {
+                        state.copy(
+                            window = data.window,
+                            isLoading = false,
+                            errorMessage = null,
+                        )
+                    } else {
+                        selectedFrameTime = null
+                        RadarUiState(
+                            window = data.window,
+                            frame = data.frame,
+                            isLoading = false,
+                            errorMessage = null,
+                        )
+                    }
+                } else {
+                    state = state.copy(
+                        isLoading = false,
+                        errorMessage = result.exceptionOrNull()?.message
+                            ?: "ECCC radar is temporarily unavailable.",
+                    )
+                }
+                delay(RADAR_SCREEN_REFRESH_INTERVAL_MILLIS)
+            }
+        }
+    }
+
+    val requestFrame: (Long) -> Unit = { timeEpochMillis ->
+        val currentLocation = location
+        if (currentLocation != null) {
+            selectedFrameTime = timeEpochMillis
+            radarScope.launch {
+                state = state.copy(isLoading = true, errorMessage = null)
+                val result = runCatching {
+                    radarClient.fetchFrame(
+                        location = currentLocation,
+                        timeEpochMillis = timeEpochMillis,
+                    )
+                }
+                val frame = result.getOrNull()
+                state = if (frame != null) {
+                    state.copy(
+                        frame = frame,
+                        isLoading = false,
+                        errorMessage = null,
+                    )
+                } else {
+                    state.copy(
+                        isLoading = false,
+                        errorMessage = result.exceptionOrNull()?.message
+                            ?: "That radar frame could not be loaded.",
+                    )
+                }
+            }
+        }
+    }
+
+    val requestLatest: () -> Unit = {
+        val currentLocation = location
+        if (currentLocation != null) {
+            selectedFrameTime = null
+            radarScope.launch {
+                state = state.copy(isLoading = true, errorMessage = null)
+                val result = runCatching {
+                    radarClient.fetchLatest(
+                        location = currentLocation,
+                        nowEpochMillis = System.currentTimeMillis(),
+                    )
+                }
+                val data = result.getOrNull()
+                state = if (data != null) {
+                    RadarUiState(
+                        window = data.window,
+                        frame = data.frame,
+                        isLoading = false,
+                        errorMessage = null,
+                    )
+                } else {
+                    state.copy(
+                        isLoading = false,
+                        errorMessage = result.exceptionOrNull()?.message
+                            ?: "ECCC radar is temporarily unavailable.",
+                    )
+                }
+            }
+        }
+    }
+
+    val frameTimes = state.window?.frameTimes().orEmpty()
+    val currentFrameTime = state.frame?.timeEpochMillis
+    val currentFrameIndex = frameTimes.indexOf(currentFrameTime).let { index ->
+        if (index >= 0) index else frameTimes.lastIndex
+    }
+
+    if (location == null) {
+        RadarLocationUnavailableScreen()
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        RadarMapCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            location = location,
+            forecast = forecast,
+            frame = state.frame,
+            frameIndex = currentFrameIndex,
+            frameTimes = frameTimes,
+            isLoading = state.isLoading,
+            errorMessage = state.errorMessage,
+            isPlaying = isPlaying,
+            onTogglePlayback = {
+                isPlaying = !isPlaying
+                if (!isPlaying) return@RadarMapCard
+                val nextIndex = if (currentFrameIndex >= frameTimes.lastIndex) {
+                    0
+                } else {
+                    currentFrameIndex + 1
+                }
+                frameTimes.getOrNull(nextIndex)?.let(requestFrame)
+                isPlaying = false
+            },
+            onSelectFrame = requestFrame,
+            onSelectLatest = requestLatest,
+        )
+    }
+
+}
+
+@Composable
+private fun RadarMapCard(
+    modifier: Modifier,
+    location: WeatherLocation,
+    forecast: DashboardForecast?,
+    frame: EcccRadarMapFrame?,
+    frameIndex: Int,
+    frameTimes: List<Long>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    isPlaying: Boolean,
+    onTogglePlayback: () -> Unit,
+    onSelectFrame: (Long) -> Unit,
+    onSelectLatest: () -> Unit,
+) {
+    val bitmap = remember(frame?.imageBytes) {
+        frame?.imageBytes?.let { bytes ->
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }
+    }
+    val nowEpochMillis = System.currentTimeMillis()
+    val arrival = forecast?.let { radarArrivalText(it, nowEpochMillis) }
+    val confidence = forecast?.let { radarConfidenceText(it) }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xFFE7F0E5)),
+    ) {
+        RadarBaseMap(modifier = Modifier.fillMaxSize())
+        bitmap?.let { image ->
+            Image(
+                bitmap = image,
+                contentDescription = "ECCC 1 kilometre radar image",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds,
+            )
+        }
+        RadarMapLabels(location = location)
+        RadarLocationMarker()
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(14.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xD91B2931),
+            shadowElevation = 3.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.AccessTime,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(19.dp),
+                )
+                Text(
+                    text = if (frame != null) {
+                        "Latest frame ${formatRadarFrameTime(frame.timeEpochMillis)}"
+                    } else {
+                        "Loading latest frame"
+                    },
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(14.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xF7FFFFFF),
+            shadowElevation = 3.dp,
+        ) {
+            IconButton(
+                onClick = onSelectLatest,
+                modifier = Modifier.semantics {
+                    contentDescription = "Radar layers and latest frame"
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Layers,
+                    contentDescription = null,
+                    tint = DeepBlue,
+                    modifier = Modifier.size(25.dp),
+                )
+            }
+        }
+
+        if (arrival != null && confidence != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 14.dp, top = 76.dp, end = 70.dp),
+                shape = RoundedCornerShape(19.dp),
+                color = Color(0xF5FFFFFF),
+                shadowElevation = 5.dp,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(11.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.CloudQueue,
+                        contentDescription = null,
+                        tint = Color(0xFF5D86B5),
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Column {
+                        Text(
+                            text = "Rain arriving in $arrival",
+                            color = DeepBlue,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "Confidence: $confidence",
+                            color = MutedNavy,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            text = "Based on current radar trend",
+                            color = MutedNavy,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (errorMessage != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+                shape = RoundedCornerShape(15.dp),
+                color = Color(0xEFFFFFFF),
+            ) {
+                Text(
+                    text = errorMessage,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    color = DeepBlue,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+
+        if (isLoading && frame == null) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(),
+                color = AccentBlue,
+                trackColor = Color.Transparent,
+            )
+        }
+
+        RadarMapLegend(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 14.dp, bottom = 124.dp),
+        )
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 14.dp, bottom = 126.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text(
+                text = "Radar updates\nevery 6 min",
+                color = DeepBlue,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.End,
+            )
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = "Radar data updates every 6 minutes",
+                tint = DeepBlue,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        RadarTimelineControls(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(10.dp),
+            frameTimes = frameTimes,
+            currentFrameIndex = frameIndex,
+            isPlaying = isPlaying,
+            isLoading = isLoading,
+            onTogglePlayback = onTogglePlayback,
+            onSelectFrame = onSelectFrame,
+            onSelectLatest = onSelectLatest,
+        )
+    }
+}
+
+@Composable
+private fun RadarBaseMap(modifier: Modifier) {
+    Canvas(modifier = modifier) {
+        drawRect(color = Color(0xFFE6ECDD))
+
+        val river = Path().apply {
+            moveTo(size.width * 0.69f, 0f)
+            cubicTo(
+                size.width * 0.61f,
+                size.height * 0.18f,
+                size.width * 0.78f,
+                size.height * 0.32f,
+                size.width * 0.65f,
+                size.height * 0.48f,
+            )
+            cubicTo(
+                size.width * 0.57f,
+                size.height * 0.63f,
+                size.width * 0.74f,
+                size.height * 0.75f,
+                size.width * 0.59f,
+                size.height,
+            )
+            lineTo(size.width * 0.49f, size.height)
+            cubicTo(
+                size.width * 0.65f,
+                size.height * 0.74f,
+                size.width * 0.48f,
+                size.height * 0.63f,
+                size.width * 0.57f,
+                size.height * 0.47f,
+            )
+            cubicTo(
+                size.width * 0.68f,
+                size.height * 0.30f,
+                size.width * 0.53f,
+                size.height * 0.17f,
+                size.width * 0.61f,
+                0f,
+            )
+            close()
+        }
+        drawPath(path = river, color = Color(0xFFB9D3E6))
+
+        val majorRoads = listOf(
+            listOf(0.03f to 0.18f, 0.36f to 0.28f, 0.67f to 0.22f, 1f to 0.34f),
+            listOf(0.10f to 0.85f, 0.32f to 0.68f, 0.58f to 0.57f, 0.96f to 0.50f),
+            listOf(0.25f to 0f, 0.34f to 0.31f, 0.30f to 0.63f, 0.43f to 1f),
+            listOf(0.86f to 0f, 0.75f to 0.26f, 0.78f to 0.54f, 0.70f to 1f),
+        )
+        majorRoads.forEach { points ->
+            points.zipWithNext().forEach { (start, end) ->
+                drawLine(
+                    color = Color(0xFFFAFBF8),
+                    start = Offset(size.width * start.first, size.height * start.second),
+                    end = Offset(size.width * end.first, size.height * end.second),
+                    strokeWidth = 5.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = Color(0xFFC8CFC8),
+                    start = Offset(size.width * start.first, size.height * start.second),
+                    end = Offset(size.width * end.first, size.height * end.second),
+                    strokeWidth = 1.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
+
+        repeat(8) { index ->
+            val x = size.width * (0.07f + index * 0.13f)
+            drawLine(
+                color = Color(0xFFCDD6CE),
+                start = Offset(x, size.height * 0.06f),
+                end = Offset(x + size.width * 0.07f, size.height * 0.94f),
+                strokeWidth = 1.dp.toPx(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RadarMapLabels(location: WeatherLocation) {
+    val city = location.label.substringBefore(",").ifBlank { "Current location" }
+    val nearbyCities = remember(location) {
+        WeatherCities.nearestTo(location, limit = 6)
+            .map { it.label.substringBefore(",") }
+            .filter { it != city }
+            .distinct()
+    }
+    val northLabel = nearbyCities.getOrNull(0) ?: "North"
+    val eastLabel = nearbyCities.getOrNull(1) ?: "East"
+    val southLabel = nearbyCities.getOrNull(2) ?: "South"
+    val westLabel = nearbyCities.getOrNull(3) ?: "West"
+    Box(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = northLabel,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 106.dp),
+            color = DeepBlue,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Text(
+            text = eastLabel,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 108.dp, end = 26.dp),
+            color = DeepBlue,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Text(
+            text = city,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(top = 40.dp),
+            color = Color(0xFF0B315F),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = southLabel,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(top = 118.dp, end = 116.dp),
+            color = DeepBlue,
+            fontSize = 12.sp,
+        )
+        Text(
+            text = westLabel,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 25.dp, top = 245.dp),
+            color = DeepBlue,
+            fontSize = 12.sp,
+        )
+        Text(
+            text = nearbyCities.getOrNull(4) ?: "Radar area",
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 24.dp, top = 165.dp),
+            color = DeepBlue,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun RadarLocationMarker() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            modifier = Modifier.size(30.dp),
+            shape = CircleShape,
+            color = Color.White,
+            shadowElevation = 4.dp,
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(5.dp)
+                    .clip(CircleShape)
+                    .background(AccentBlue),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RadarMapLegend(modifier: Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(15.dp),
+        color = Color(0xF2FFFFFF),
+        shadowElevation = 4.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Light", color = DeepBlue, fontSize = 10.sp)
+                Text("Moderate", color = DeepBlue, fontSize = 10.sp)
+                Text("Heavy", color = DeepBlue, fontSize = 10.sp)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color(0xFF36A853),
+                                Color(0xFFE0D829),
+                                Color(0xFFF18D20),
+                                Color(0xFFD9272E),
+                                Color(0xFFE342A5),
+                            ),
+                        ),
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RadarTimelineControls(
+    modifier: Modifier,
+    frameTimes: List<Long>,
+    currentFrameIndex: Int,
+    isPlaying: Boolean,
+    isLoading: Boolean,
+    onTogglePlayback: () -> Unit,
+    onSelectFrame: (Long) -> Unit,
+    onSelectLatest: () -> Unit,
+) {
+    val hasFrames = frameTimes.isNotEmpty()
+    val safeIndex = currentFrameIndex.coerceIn(0, (frameTimes.size - 1).coerceAtLeast(0))
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xF7FFFFFF),
+        shadowElevation = 6.dp,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                IconButton(
+                    onClick = onTogglePlayback,
+                    enabled = hasFrames && !isLoading,
+                    modifier = Modifier
+                        .size(43.dp)
+                        .background(Color(0xFFF9FBFD), RoundedCornerShape(12.dp)),
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause radar timeline" else "Play radar timeline",
+                        tint = DeepBlue,
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        frameTimes.firstOrNull()?.let(onSelectFrame)
+                    },
+                    enabled = hasFrames && !isLoading,
+                    modifier = Modifier
+                        .size(43.dp)
+                        .background(Color(0xFFF9FBFD), RoundedCornerShape(12.dp)),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.SkipPrevious,
+                        contentDescription = "First radar frame",
+                        tint = DeepBlue,
+                    )
+                }
+                Slider(
+                    value = safeIndex.toFloat(),
+                    onValueChange = { value ->
+                        frameTimes.getOrNull(value.roundToInt())?.let(onSelectFrame)
+                    },
+                    valueRange = 0f..(frameTimes.lastIndex.coerceAtLeast(0)).toFloat(),
+                    steps = (frameTimes.size - 2).coerceAtLeast(0),
+                    enabled = hasFrames && !isLoading,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = {
+                        frameTimes.lastOrNull()?.let {
+                            onSelectLatest()
+                        }
+                    },
+                    enabled = hasFrames && !isLoading,
+                    modifier = Modifier
+                        .size(43.dp)
+                        .background(Color(0xFFF9FBFD), RoundedCornerShape(12.dp)),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.SkipNext,
+                        contentDescription = "Latest radar frame",
+                        tint = DeepBlue,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 117.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = frameTimes.firstOrNull()?.let(::formatRadarFrameTime) ?: "—",
+                    color = MutedNavy,
+                    fontSize = 11.sp,
+                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = frameTimes.getOrNull(safeIndex)?.let(::formatRadarFrameTime) ?: "—",
+                        color = if (safeIndex == frameTimes.lastIndex) AccentBlue else MutedNavy,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    if (safeIndex == frameTimes.lastIndex) {
+                        Text("Now", color = AccentBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RadarLocationUnavailableScreen() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.GpsFixed,
+            contentDescription = null,
+            tint = AccentBlue,
+            modifier = Modifier.size(48.dp),
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        Text(
+            text = "Choose a location to view radar",
+            color = DeepBlue,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(7.dp))
+        Text(
+            text = "Radar uses your precise location to center the ECCC 1 km map.",
+            color = MutedNavy,
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+private fun EcccRadarTimeWindow.frameTimes(): List<Long> {
+    val frameCount = ((endEpochMillis - startEpochMillis) / intervalMillis)
+        .toInt()
+        .coerceIn(0, 120)
+    return List(frameCount + 1) { index ->
+        startEpochMillis + index * intervalMillis
+    }
+}
+
+private val radarFrameTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+
+private fun formatRadarFrameTime(epochMillis: Long): String =
+    radarFrameTimeFormatter
+        .withZone(ZoneId.systemDefault())
+        .format(Instant.ofEpochMilli(epochMillis))
+
+private fun radarArrivalText(forecast: DashboardForecast, nowEpochMillis: Long): String {
+    val countdown = forecast.rainStartMinutesFromNow(nowEpochMillis)
+    val value = if (countdown != null && countdown <= RADAR_RAIN_WINDOW_MINUTES) {
+        formatRainStartCountdown(countdown)
+    } else {
+        forecast.rainStartsIn.trim()
+    }
+    return if (value.startsWith("~")) value else "~$value"
+}
+
+private fun radarConfidenceText(forecast: DashboardForecast): String = when {
+    forecast.rainStartSource == RainStartSource.ECCC_RADAR &&
+        forecast.rainStartConfidenceMeaningful -> "High"
+    else -> "Medium"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
