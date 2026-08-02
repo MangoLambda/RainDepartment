@@ -100,6 +100,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -2696,7 +2697,7 @@ private fun HourlyDirectionRow(hourly: List<HourlyForecast>) {
                 modifier = Modifier.width(50.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(text = "↓", color = Aqua, fontSize = 13.sp, lineHeight = 12.sp)
+                WindDirectionArrow(item.windDirectionLabel)
                 Text(
                     text = item.windDirectionLabel,
                     color = DeepBlue,
@@ -2704,6 +2705,45 @@ private fun HourlyDirectionRow(hourly: List<HourlyForecast>) {
                     fontWeight = FontWeight.Medium,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun WindDirectionArrow(direction: String) {
+    Canvas(
+        modifier = Modifier
+            .size(width = 20.dp, height = 18.dp)
+            .semantics { contentDescription = "Wind direction $direction" },
+    ) {
+        val centerX = size.width / 2f
+        val arrowTop = 2.dp.toPx()
+        val arrowBottom = size.height - 2.dp.toPx()
+        val arrowHeadSize = 4.dp.toPx()
+        val strokeWidth = 1.8.dp.toPx()
+
+        rotate(windDirectionRotationDegrees(direction)) {
+            drawLine(
+                color = Aqua,
+                start = Offset(centerX, arrowBottom),
+                end = Offset(centerX, arrowTop),
+                strokeWidth = strokeWidth,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = Aqua,
+                start = Offset(centerX, arrowTop),
+                end = Offset(centerX - arrowHeadSize, arrowTop + arrowHeadSize),
+                strokeWidth = strokeWidth,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = Aqua,
+                start = Offset(centerX, arrowTop),
+                end = Offset(centerX + arrowHeadSize, arrowTop + arrowHeadSize),
+                strokeWidth = strokeWidth,
+                cap = StrokeCap.Round,
+            )
         }
     }
 }

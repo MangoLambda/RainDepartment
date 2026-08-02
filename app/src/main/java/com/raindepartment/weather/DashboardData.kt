@@ -88,6 +88,28 @@ internal data class WeatherSnapshot(
     val forecast: DashboardForecast,
 )
 
+private val compassDirectionRotationDegrees = mapOf(
+    "N" to 0f,
+    "NNE" to 22.5f,
+    "NE" to 45f,
+    "ENE" to 67.5f,
+    "E" to 90f,
+    "ESE" to 112.5f,
+    "SE" to 135f,
+    "SSE" to 157.5f,
+    "S" to 180f,
+    "SSW" to 202.5f,
+    "SW" to 225f,
+    "WSW" to 247.5f,
+    "W" to 270f,
+    "WNW" to 292.5f,
+    "NW" to 315f,
+    "NNW" to 337.5f,
+)
+
+internal fun windDirectionRotationDegrees(direction: String): Float =
+    compassDirectionRotationDegrees[direction.trim().uppercase(Locale.ROOT)] ?: 0f
+
 internal fun DashboardForecast.currentWeather(): CurrentWeather = CurrentWeather(
     location = location,
     condition = condition,

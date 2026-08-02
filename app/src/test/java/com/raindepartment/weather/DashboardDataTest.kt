@@ -42,6 +42,15 @@ class DashboardDataTest {
         assertTrue(hourly.rainfallInches > 0.0)
     }
 
+    @Test
+    fun windDirectionRotationFollowsCompassLabel() {
+        assertEquals(0f, windDirectionRotationDegrees("N"), 0f)
+        assertEquals(90f, windDirectionRotationDegrees("e"), 0f)
+        assertEquals(112.5f, windDirectionRotationDegrees(" ESE "), 0f)
+        assertEquals(180f, windDirectionRotationDegrees("S"), 0f)
+        assertEquals(270f, windDirectionRotationDegrees("W"), 0f)
+    }
+
     private fun testForecast() = DashboardForecast(
         location = "Austin, Texas",
         condition = WeatherCondition.PARTLY_CLOUDY,
