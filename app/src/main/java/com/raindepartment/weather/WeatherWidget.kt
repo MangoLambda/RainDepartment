@@ -79,10 +79,6 @@ private val WidgetSoftWhite = ColorProvider(
     day = Color(0xE6FFFFFF),
     night = Color(0xE6FFFFFF),
 )
-private val WidgetDetailsBackground = ColorProvider(
-    day = Color(0x88001F42),
-    night = Color(0x88001F42),
-)
 private val WidgetScrim = ColorProvider(
     day = Color(0x24001F42),
     night = Color(0x24001F42),
@@ -162,7 +158,7 @@ private fun WeatherWidgetContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Leave the illustrated left side clean; weather details start after it.
-            Spacer(modifier = GlanceModifier.width(72.dp))
+            Spacer(modifier = GlanceModifier.width(64.dp))
             Spacer(
                 modifier = GlanceModifier
                     .width(1.dp)
@@ -181,7 +177,7 @@ private fun WeatherWidgetContent(
                             text = weather.location,
                             style = TextStyle(
                                 color = WidgetWhite,
-                                fontSize = 12.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                             ),
                         )
@@ -208,8 +204,6 @@ private fun WeatherWidgetContent(
                     Box(
                         modifier = GlanceModifier
                             .defaultWeight()
-                            .cornerRadius(10.dp)
-                            .background(WidgetDetailsBackground)
                             .padding(horizontal = 8.dp, vertical = 5.dp),
                     ) {
                         Column {
