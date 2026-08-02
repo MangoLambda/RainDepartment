@@ -51,6 +51,19 @@ class DashboardDataTest {
         assertEquals(270f, windDirectionRotationDegrees("W"), 0f)
     }
 
+    @Test
+    fun radarRainStartTextUsesHoursAndMinutesInsideThreeHourWindow() {
+        val now = 1_000_000L
+        val forecast = testForecast().copy(
+            rainStartsAtEpochMillis = now + 65 * 60_000L,
+            rainStartSource = RainStartSource.ECCC_RADAR,
+        )
+
+        assertEquals("rain starts, in 1 hour, 5 minutes", forecast.radarRainStartText(now))
+        assertEquals(null, testForecast().radarRainStartText(now))
+        assertEquals("1 hour, 5 minutes", formatRainStartCountdown(65))
+    }
+
     private fun testForecast() = DashboardForecast(
         location = "Austin, Texas",
         condition = WeatherCondition.PARTLY_CLOUDY,

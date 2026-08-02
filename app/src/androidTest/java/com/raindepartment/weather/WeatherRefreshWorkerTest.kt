@@ -12,7 +12,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class WeatherRefreshWorkerTest {
     @Test
-    fun schedulerEnqueuesConnectedSixHourWork() {
+    fun schedulerEnqueuesConnectedCadencedWork() {
         val context = ApplicationProvider.getApplicationContext<Context>()
 
         WeatherRefreshScheduler.schedule(context)
@@ -23,6 +23,6 @@ class WeatherRefreshWorkerTest {
 
         assertEquals(1, work.size)
         assertEquals(NetworkType.CONNECTED, work.single().constraints.requiredNetworkType)
-        assertEquals(6, WeatherRefreshScheduler.INTERVAL_HOURS)
+        assertEquals(45L, WeatherRefreshScheduler.DEFAULT_DELAY_MINUTES)
     }
 }

@@ -106,6 +106,42 @@ class WeatherRepositoryTest {
         assertEquals(city.label, repository.state.value.snapshot?.forecast?.location)
     }
 
+    @Test
+    fun ecccRadarOverridesModelRainStartInsideThreeHourWindow() = runBlocking {
+        val now = 10_000L
+        val modelForecast = DashboardForecastTestData.forecast.copy(
+            rainStartsAtEpochMillis = now + 2 * 60 * 60 * 1_000L,
+            rainStartSource = RainStartSource.MODEL,
+        )
+        val repository = WeatherRepository(
+            client = object : GemWeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(modelForecast, "America/Chicago")
+            },
+            cache = FakeCache(),
+            locationProvider = FakeLocationProvider(),
+            clock = { now },
+            radarClient = object : EcccRadarClient {
+                override suspend fun findRainStart(
+                    location: WeatherLocation,
+                    nowEpochMillis: Long,
+                ): EcccRadarRainStart = EcccRadarRainStart(
+                    startsAtEpochMillis = now + 12 * 60_000L,
+                    confidenceMeaningful = true,
+                )
+            },
+        )
+
+        val result = repository.refresh(force = true)
+
+        assertTrue(result is RefreshResult.Updated)
+        val forecast = repository.state.value.snapshot!!.forecast
+        assertEquals(RainStartSource.ECCC_RADAR, forecast.rainStartSource)
+        assertEquals(now + 12 * 60_000L, forecast.rainStartsAtEpochMillis)
+        assertEquals("12 minutes", forecast.rainStartsIn)
+        assertTrue(forecast.rainStartConfidenceMeaningful)
+    }
+
     private class FakeCache(var value: WeatherSnapshot? = null) : WeatherCache {
         override fun read(): WeatherSnapshot? = value
         override fun write(snapshot: WeatherSnapshot) {

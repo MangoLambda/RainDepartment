@@ -1,0 +1,50 @@
+package com.raindepartment.weather
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class EcccRadarClientTest {
+    @Test
+    fun parsesSixMinuteRadarTimeWindow() {
+        val window = parseEcccRadarTimeWindow(
+            """
+                <Layer>
+                  <Dimension name="time" units="ISO8601">2026-08-02T03:24:00Z/2026-08-02T04:36:00Z/PT6M</Dimension>
+                </Layer>
+            """.trimIndent(),
+        )
+
+        assertEquals(72 * 60_000L, window.endEpochMillis - window.startEpochMillis)
+        assertEquals(6 * 60_000L, window.intervalMillis)
+    }
+
+    @Test
+    fun parsesRadarRateFromFeatureInfo() {
+        val rate = parseEcccRadarRainRate(
+            """
+                {
+                  "type":"FeatureCollection",
+                  "features":[{"properties":{"value":1.25,"class":"Light"}}]
+                }
+            """.trimIndent(),
+        )
+
+        assertEquals(1.25, rate!!, 0.0)
+        assertNull(parseEcccRadarRainRate("{\"features\":[]}"))
+    }
+
+    @Test
+    fun featureInfoUsesTheEcccOneKilometreExtrapolationLayer() {
+        val url = ecccRadarFeatureInfoUrl(
+            location = AustinLocation,
+            timeEpochMillis = 1_785_660_000_000L,
+        )
+
+        assertTrue(url.contains("Radar_1km_RainPrecipRate-Extrapolation"))
+        assertTrue(url.contains("GetFeatureInfo"))
+        assertTrue(url.contains("EPSG%3A4326"))
+        assertTrue(url.contains("time%3D") || url.contains("time="))
+    }
+}

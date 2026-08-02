@@ -149,6 +149,7 @@ private fun WeatherWidgetContent(
     backplate: androidx.glance.ImageProvider,
     isStale: Boolean,
 ) {
+    val radarRainStartText = forecast.radarRainStartText(System.currentTimeMillis())
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
@@ -246,15 +247,17 @@ private fun WeatherWidgetContent(
                                         .width(12.dp)
                                         .height(12.dp),
                                 )
-                                Spacer(modifier = GlanceModifier.width(3.dp))
-                                Text(
-                                    text = "·  ${forecast.rainStartsIn}",
-                                    style = TextStyle(
-                                        color = WidgetWhite,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                )
+                                if (radarRainStartText == null) {
+                                    Spacer(modifier = GlanceModifier.width(3.dp))
+                                    Text(
+                                        text = "·  ${forecast.rainStartsIn}",
+                                        style = TextStyle(
+                                            color = WidgetWhite,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    )
+                                }
                             }
                             Spacer(modifier = GlanceModifier.height(2.dp))
                             Text(
@@ -268,6 +271,22 @@ private fun WeatherWidgetContent(
                         }
                     }
                 }
+            }
+        }
+        radarRainStartText?.let { text ->
+            Box(
+                modifier = GlanceModifier.fillMaxSize(),
+                contentAlignment = Alignment.BottomStart,
+            ) {
+                Text(
+                    text = text,
+                    modifier = GlanceModifier.padding(start = 80.dp, end = 14.dp, bottom = 4.dp),
+                    style = TextStyle(
+                        color = WidgetSoftWhite,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
             }
         }
     }

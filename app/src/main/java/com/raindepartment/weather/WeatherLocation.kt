@@ -28,7 +28,7 @@ internal class AndroidWeatherLocationProvider(
     }
 
     override suspend fun currentOrNull(): WeatherLocation? {
-        if (!context.hasCoarseLocationPermission()) return null
+        if (!context.hasPreciseLocationPermission()) return null
         val location = currentPlatformLocation() ?: return null
         return WeatherLocation(
             latitude = location.latitude,
@@ -114,8 +114,8 @@ internal class AndroidWeatherLocationProvider(
     }
 }
 
-internal fun Context.hasCoarseLocationPermission(): Boolean =
+internal fun Context.hasPreciseLocationPermission(): Boolean =
     ContextCompat.checkSelfPermission(
         this,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.ACCESS_FINE_LOCATION,
     ) == PackageManager.PERMISSION_GRANTED

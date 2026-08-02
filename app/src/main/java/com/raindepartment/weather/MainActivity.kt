@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.os.Bundle
+import android.os.Build
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -172,14 +173,25 @@ internal fun RainDepartmentApp(
     }
     var isCityPickerVisible by rememberSaveable { mutableStateOf(false) }
     val locationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { permissions ->
+        val preciseGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
         weatherScope.launch {
             weatherRepository.refresh(
                 force = true,
-                updateLocation = granted && selectedCityLocation == null,
+                updateLocation = preciseGranted && selectedCityLocation == null,
                 locationOverride = selectedCityLocation,
             )
+        }
+    }
+    var notificationPermissionRequested by rememberSaveable { mutableStateOf(false) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            weatherState.snapshot?.let { snapshot ->
+                RainNotificationManager.notifyIfMeaningful(context, snapshot)
+            }
         }
     }
     val updateManager = remember(context) {
@@ -220,12 +232,17 @@ internal fun RainDepartmentApp(
     val refreshLocation: () -> Unit = {
         selectedCityLocation = null
         WeatherPreferences.clearSelectedLocation(context)
-        if (context.hasCoarseLocationPermission()) {
+        if (context.hasPreciseLocationPermission()) {
             weatherScope.launch {
                 weatherRepository.refresh(force = true, updateLocation = true)
             }
         } else {
-            locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                ),
+            )
         }
     }
     val selectCity: (WeatherLocation) -> Unit = { location ->
@@ -251,16 +268,21 @@ internal fun RainDepartmentApp(
         when {
             requestLocationPermission &&
                 selectedCityLocation == null &&
-                !context.hasCoarseLocationPermission() &&
+                !context.hasPreciseLocationPermission() &&
                 !locationPermissionRequested -> {
                 locationPermissionRequested = true
-                locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                locationPermissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                    ),
+                )
             }
             else -> {
                 weatherRepository.refresh(
                     updateLocation = requestLocationPermission &&
                         selectedCityLocation == null &&
-                        context.hasCoarseLocationPermission(),
+                        context.hasPreciseLocationPermission(),
                     locationOverride = selectedCityLocation,
                 )
             }
@@ -271,6 +293,24 @@ internal fun RainDepartmentApp(
         if (updateWidget && repository == null && weatherState.snapshot != null) {
             WeatherWidget.updateAll(context.applicationContext)
         }
+    }
+
+    LaunchedEffect(weatherState.snapshot?.fetchedAtEpochMillis, requestLocationPermission) {
+        val snapshot = weatherState.snapshot ?: return@LaunchedEffect
+        if (requestLocationPermission) {
+            WeatherRefreshScheduler.schedule(context.applicationContext, snapshot)
+            if (snapshot.forecast.rainStartConfidenceMeaningful &&
+                snapshot.forecast.rainStartMinutesFromNow(System.currentTimeMillis())
+                    ?.let { it <= 60L } == true &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                !RainNotificationManager.hasPermission(context) &&
+                !notificationPermissionRequested
+            ) {
+                notificationPermissionRequested = true
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        RainNotificationManager.notifyIfMeaningful(context, snapshot)
     }
 
     DisposableEffect(updateManager, weatherRepository, lifecycleOwner, activity) {
@@ -448,7 +488,7 @@ private fun RainDepartmentHeader(
                     IconButton(onClick = onRefreshLocation, enabled = !isRefreshing) {
                         Icon(
                             imageVector = Icons.Outlined.GpsFixed,
-                            contentDescription = "Use approximate location",
+                            contentDescription = "Use precise location",
                             tint = Color.White,
                             modifier = Modifier.size(27.dp),
                         )

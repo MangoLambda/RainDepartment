@@ -49,6 +49,12 @@ internal data class ChartPoint(
     val value: Float,
 )
 
+internal enum class RainStartSource {
+    NONE,
+    MODEL,
+    ECCC_RADAR,
+}
+
 internal data class DashboardForecast(
     val location: String,
     val condition: WeatherCondition,
@@ -73,6 +79,9 @@ internal data class DashboardForecast(
     val sunrise: String,
     val sunset: String,
     val dryWindow: String,
+    val rainStartsAtEpochMillis: Long? = null,
+    val rainStartSource: RainStartSource = RainStartSource.NONE,
+    val rainStartConfidenceMeaningful: Boolean = false,
 )
 
 internal data class WeatherLocation(
@@ -164,4 +173,45 @@ internal fun HourlyForecast.windSpeed(unitSystem: UnitSystem): String {
         UnitSystem.METRIC -> (windMph * 1.60934).roundToInt()
     }
     return value.toString()
+}
+
+internal const val RADAR_RAIN_WINDOW_MINUTES = 3 * 60L
+
+internal fun DashboardForecast.rainStartMinutesFromNow(nowEpochMillis: Long): Long? {
+    val startsAt = rainStartsAtEpochMillis ?: return null
+    val remainingMillis = startsAt - nowEpochMillis
+    return if (remainingMillis <= 0L) {
+        0L
+    } else {
+        (remainingMillis + 59_999L) / 60_000L
+    }
+}
+
+internal fun DashboardForecast.isRadarRainStartWithinWindow(nowEpochMillis: Long): Boolean {
+    return rainStartSource == RainStartSource.ECCC_RADAR &&
+        rainStartMinutesFromNow(nowEpochMillis)?.let { it <= RADAR_RAIN_WINDOW_MINUTES } == true
+}
+
+internal fun DashboardForecast.radarRainStartText(nowEpochMillis: Long): String? {
+    if (!isRadarRainStartWithinWindow(nowEpochMillis)) return null
+    return "rain starts, in ${formatRainStartCountdown(rainStartMinutesFromNow(nowEpochMillis) ?: 0L)}"
+}
+
+internal fun formatRainStartCountdown(totalMinutes: Long): String {
+    val minutes = totalMinutes.coerceAtLeast(0L)
+    if (minutes == 0L) return "now"
+
+    val hours = minutes / 60L
+    val remainingMinutes = minutes % 60L
+    val hoursLabel = when (hours) {
+        0L -> null
+        1L -> "1 hour"
+        else -> "$hours hours"
+    }
+    val minutesLabel = when (remainingMinutes) {
+        0L -> null
+        1L -> "1 minute"
+        else -> "$remainingMinutes minutes"
+    }
+    return listOfNotNull(hoursLabel, minutesLabel).joinToString(", ")
 }

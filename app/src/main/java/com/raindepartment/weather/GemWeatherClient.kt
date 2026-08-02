@@ -186,13 +186,19 @@ internal object GemWeatherParser {
             hourlyForecast(index, time = if (visibleIndex == 0) "Now" else formatHour(hourlyTimes[index]))
         }
 
+        val currentPrecipitationInches = current.requiredDouble("precipitation").coerceAtLeast(0.0)
         val rainIndex = (currentIndex until hourlyLength).firstOrNull {
             hourlyPrecipitation[it] > 0.005
         }
+        val rainStartsAt = when {
+            currentPrecipitationInches > 0.005 -> currentTime
+            rainIndex != null -> hourlyTimes[rainIndex]
+            else -> null
+        }
         val rainStartsIn = when {
-            rainIndex == null -> "No rain expected"
-            rainIndex == currentIndex -> "Now"
-            else -> formatDuration(currentTime, hourlyTimes[rainIndex])
+            rainStartsAt == null -> "No rain expected"
+            rainStartsAt <= currentTime -> "Now"
+            else -> formatDuration(currentTime, rainStartsAt)
         }
 
         val dailyForecast = dailyTimes.indices.map { index ->
@@ -250,7 +256,7 @@ internal object GemWeatherParser {
                 lowFahrenheit = dailyLows.first().roundToInt(),
                 conditionLabel = currentConditionResult.second,
                 precipitationChance = dailyChance.first().roundToInt().coerceIn(0, 100),
-                currentPrecipitationInches = current.requiredDouble("precipitation").coerceAtLeast(0.0),
+                currentPrecipitationInches = currentPrecipitationInches,
                 expectedRainInches = dailyRain.first().coerceAtLeast(0.0),
                 peakWindMph = dailyWind.first().roundToInt().coerceAtLeast(0),
                 peakWindDirection = peakWindDirection,
@@ -265,6 +271,12 @@ internal object GemWeatherParser {
                 sunrise = firstDailySunrise.format(clockFormatter),
                 sunset = firstDailySunset.format(clockFormatter),
                 dryWindow = dryWindow(chartRows),
+                rainStartsAtEpochMillis = rainStartsAt?.toInstant()?.toEpochMilli(),
+                rainStartSource = if (rainStartsAt == null) {
+                    RainStartSource.NONE
+                } else {
+                    RainStartSource.MODEL
+                },
             ),
             timezone = timezone,
         )

@@ -60,6 +60,7 @@ internal class WeatherRepository(
     private val locationProvider: WeatherLocationProvider,
     private val preferredLocation: () -> WeatherLocation? = { null },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val radarClient: EcccRadarClient = NoOpEcccRadarClient,
 ) {
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(initialState(cache.read()))
@@ -71,7 +72,11 @@ internal class WeatherRepository(
         locationOverride: WeatherLocation? = null,
     ): RefreshResult = mutex.withLock {
         val previous = mutableState.value.snapshot ?: cache.read()
-        if (!force && previous != null && clock() - previous.fetchedAtEpochMillis < AUTO_REFRESH_AGE_MS) {
+        val now = clock()
+        if (!force && previous != null &&
+            now - previous.fetchedAtEpochMillis <
+            refreshCadenceMinutes(previous.forecast, now) * 60_000L
+        ) {
             return@withLock RefreshResult.Skipped
         }
 
@@ -92,11 +97,18 @@ internal class WeatherRepository(
                     ?: throw LocationUnavailableException()
             }
             val parsed = client.fetch(location)
+            val fetchedAt = clock()
+            val baseForecast = parsed.forecast.copy(location = location.label)
+            val forecast = applyRadarRainStartIfNeeded(
+                forecast = baseForecast,
+                location = location,
+                nowEpochMillis = fetchedAt,
+            )
             val snapshot = WeatherSnapshot(
                 location = location,
                 timezone = parsed.timezone,
-                fetchedAtEpochMillis = clock(),
-                forecast = parsed.forecast.copy(location = location.label),
+                fetchedAtEpochMillis = fetchedAt,
+                forecast = forecast,
             )
             cache.write(snapshot)
             mutableState.value = stateFor(snapshot, isRefreshing = false, errorMessage = null)
@@ -123,6 +135,35 @@ internal class WeatherRepository(
         }
     }
 
+    private suspend fun applyRadarRainStartIfNeeded(
+        forecast: DashboardForecast,
+        location: WeatherLocation,
+        nowEpochMillis: Long,
+    ): DashboardForecast {
+        val modelRainStart = forecast.rainStartsAtEpochMillis ?: return forecast
+        if (modelRainStart > nowEpochMillis + RADAR_RAIN_WINDOW_MINUTES * 60_000L) {
+            return forecast
+        }
+
+        val radarRainStart = try {
+            radarClient.findRainStart(location, nowEpochMillis)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return forecast
+
+        return forecast.copy(
+            rainStartsIn = formatRainStartCountdown(
+                ((radarRainStart.startsAtEpochMillis - nowEpochMillis + 59_999L) / 60_000L)
+                    .coerceAtLeast(0L),
+            ),
+            rainStartsAtEpochMillis = radarRainStart.startsAtEpochMillis,
+            rainStartSource = RainStartSource.ECCC_RADAR,
+            rainStartConfidenceMeaningful = radarRainStart.confidenceMeaningful,
+        )
+    }
+
     private fun isStale(snapshot: WeatherSnapshot?): Boolean = snapshot != null &&
         clock() - snapshot.fetchedAtEpochMillis >= STALE_AGE_MS
 
@@ -144,7 +185,6 @@ internal class WeatherRepository(
     )
 
     private companion object {
-        val AUTO_REFRESH_AGE_MS = TimeUnit.MINUTES.toMillis(15)
         val STALE_AGE_MS = TimeUnit.HOURS.toMillis(6)
     }
 }
@@ -156,6 +196,7 @@ private class LocationUnavailableException : IllegalStateException(
 internal object WeatherRepositoryFactory {
     fun create(context: Context): WeatherRepository = WeatherRepository(
         client = HttpGemWeatherClient(),
+        radarClient = HttpEcccRadarClient(),
         cache = SharedPreferencesWeatherCache(context.applicationContext),
         locationProvider = AndroidWeatherLocationProvider(context.applicationContext),
         preferredLocation = { WeatherPreferences.selectedLocation(context.applicationContext) },
@@ -163,7 +204,7 @@ internal object WeatherRepositoryFactory {
 }
 
 internal object WeatherSnapshotCodec {
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     fun encode(snapshot: WeatherSnapshot): String = JSONObject().apply {
         put("version", VERSION)
@@ -234,6 +275,9 @@ internal object WeatherSnapshotCodec {
         put("sunrise", forecast.sunrise)
         put("sunset", forecast.sunset)
         put("dryWindow", forecast.dryWindow)
+        put("rainStartsAtEpochMillis", forecast.rainStartsAtEpochMillis)
+        put("rainStartSource", forecast.rainStartSource.name)
+        put("rainStartConfidenceMeaningful", forecast.rainStartConfidenceMeaningful)
     }
 
     private fun encodeChart(points: List<ChartPoint>): JSONArray = JSONArray().apply {
@@ -269,6 +313,11 @@ internal object WeatherSnapshotCodec {
         sunrise = root.getString("sunrise"),
         sunset = root.getString("sunset"),
         dryWindow = root.getString("dryWindow"),
+        rainStartsAtEpochMillis = root.optionalLong("rainStartsAtEpochMillis"),
+        rainStartSource = runCatching {
+            RainStartSource.valueOf(root.optString("rainStartSource"))
+        }.getOrDefault(RainStartSource.NONE),
+        rainStartConfidenceMeaningful = root.optBoolean("rainStartConfidenceMeaningful", false),
     )
 
     private fun encodeHourly(hourly: List<HourlyForecast>): JSONArray = JSONArray().apply {
@@ -331,5 +380,11 @@ internal object WeatherSnapshotCodec {
             val root = array.getJSONObject(index)
             add(ChartPoint(root.getString("label"), root.getDouble("value").toFloat()))
         }
+    }
+
+    private fun JSONObject.optionalLong(name: String): Long? = if (isNull(name)) {
+        null
+    } else {
+        optLong(name).takeIf { has(name) }
     }
 }
