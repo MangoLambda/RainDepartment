@@ -2992,33 +2992,70 @@ private fun TimelineMetricDivider() {
 }
 
 @Composable
-private fun TimelineConditionIcon(
+private fun TimelineRainIcon(
     condition: WeatherCondition,
     modifier: Modifier,
 ) {
-    if (condition in setOf(
-            WeatherCondition.DRIZZLE,
-            WeatherCondition.RAIN,
-            WeatherCondition.HEAVY_RAIN,
+    val dropCount = timelineRainDropCount(condition) ?: return
+
+    BoxWithConstraints(modifier) {
+        val dropSize = when {
+            dropCount == 1 && maxWidth < 45.dp -> 12.dp
+            dropCount == 1 -> 16.dp
+            maxWidth < 45.dp -> 8.dp
+            else -> 12.dp
+        }
+
+        Icon(
+            imageVector = Icons.Outlined.CloudQueue,
+            contentDescription = condition.name,
+            tint = AccentBlue,
+            modifier = Modifier.fillMaxSize(),
         )
-    ) {
-        Box(modifier = modifier) {
-            Icon(
-                imageVector = Icons.Outlined.CloudQueue,
-                contentDescription = condition.name,
-                tint = AccentBlue,
-                modifier = Modifier.fillMaxSize(),
-            )
+        if (dropCount == 1) {
             Icon(
                 imageVector = Icons.Outlined.WaterDrop,
                 contentDescription = null,
                 tint = AccentBlue,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(15.dp)
+                    .size(dropSize)
                     .offset(x = (-2).dp, y = 2.dp),
             )
+        } else {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 0.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                repeat(dropCount) {
+                    Icon(
+                        imageVector = Icons.Outlined.WaterDrop,
+                        contentDescription = null,
+                        tint = AccentBlue,
+                        modifier = Modifier.size(dropSize),
+                    )
+                }
+            }
         }
+    }
+}
+
+internal fun timelineRainDropCount(condition: WeatherCondition): Int? = when (condition) {
+    WeatherCondition.DRIZZLE -> 1
+    WeatherCondition.RAIN -> 3
+    WeatherCondition.HEAVY_RAIN -> 4
+    else -> null
+}
+
+@Composable
+private fun TimelineConditionIcon(
+    condition: WeatherCondition,
+    modifier: Modifier,
+) {
+    if (timelineRainDropCount(condition) != null) {
+        TimelineRainIcon(condition, modifier)
     } else {
         ConditionIcon(condition, modifier)
     }
