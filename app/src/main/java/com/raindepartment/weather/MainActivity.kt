@@ -2,7 +2,10 @@ package com.raindepartment.weather
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.os.Bundle
+import android.view.ViewGroup
+import android.widget.ScrollView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,7 +22,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -98,12 +100,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -142,6 +146,7 @@ internal fun RainDepartmentApp(
     requestLocationPermission: Boolean = true,
     checkForUpdates: Boolean = true,
     updateWidget: Boolean = true,
+    useNativeBriefingScrollCapture: Boolean = true,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -303,6 +308,7 @@ internal fun RainDepartmentApp(
                             isStale = weatherState.isStale,
                             errorMessage = weatherState.errorMessage,
                             onLocationClick = { isCityPickerVisible = true },
+                            useNativeScrollCapture = useNativeBriefingScrollCapture,
                         )
                     } ?: BriefingUnavailableScreen(
                         isRefreshing = weatherState.isRefreshing,
@@ -1100,66 +1106,128 @@ private fun BriefingScreen(
     isStale: Boolean,
     errorMessage: String?,
     onLocationClick: () -> Unit,
+    useNativeScrollCapture: Boolean,
 ) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+    val content: @Composable () -> Unit = {
+        BriefingContent(
+            forecast = forecast,
+            unitSystem = unitSystem,
+            backgroundWeather = backgroundWeather,
+            selectedRange = selectedRange,
+            onRangeSelected = onRangeSelected,
+            isRefreshing = isRefreshing,
+            isStale = isStale,
+            errorMessage = errorMessage,
+            onLocationClick = onLocationClick,
+        )
+    }
+
+    if (useNativeScrollCapture) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context -> BriefingScrollContainer(context) },
+            update = { container -> container.updateContent(content) },
+        )
+    } else {
+        BriefingContent(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            forecast = forecast,
+            unitSystem = unitSystem,
+            backgroundWeather = backgroundWeather,
+            selectedRange = selectedRange,
+            onRangeSelected = onRangeSelected,
+            isRefreshing = isRefreshing,
+            isStale = isStale,
+            errorMessage = errorMessage,
+            onLocationClick = onLocationClick,
+        )
+    }
+}
+
+private class BriefingScrollContainer(context: Context) : ScrollView(context) {
+    private val composeView = ComposeView(context).apply {
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        )
+    }
+
+    private var content by mutableStateOf<(@Composable () -> Unit)?>(null)
+
+    init {
+        isFillViewport = false
+        setVerticalScrollBarEnabled(false)
+        addView(composeView)
+        composeView.setContent {
+            RainDepartmentTheme {
+                content?.invoke()
+            }
+        }
+    }
+
+    fun updateContent(content: @Composable () -> Unit) {
+        this.content = content
+    }
+}
+
+@Composable
+private fun BriefingContent(
+    modifier: Modifier = Modifier,
+    forecast: DashboardForecast,
+    unitSystem: UnitSystem,
+    backgroundWeather: CurrentWeather,
+    selectedRange: ForecastRange,
+    onRangeSelected: (ForecastRange) -> Unit,
+    isRefreshing: Boolean,
+    isStale: Boolean,
+    errorMessage: String?,
+    onLocationClick: () -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (isRefreshing || isStale || errorMessage != null) {
-            item {
-                WeatherStatusBanner(
-                    isRefreshing = isRefreshing,
-                    isStale = isStale,
-                    errorMessage = errorMessage,
-                )
-            }
-        }
-        item {
-            WeatherHeroCard(
-                forecast = forecast,
-                unitSystem = unitSystem,
-                backgroundWeather = backgroundWeather,
-                onLocationClick = onLocationClick,
+            WeatherStatusBanner(
+                isRefreshing = isRefreshing,
+                isStale = isStale,
+                errorMessage = errorMessage,
             )
         }
-        item {
-            ForecastRangeSelector(
-                selected = selectedRange,
-                onSelected = onRangeSelected,
-            )
-        }
-        item {
-            HourlyForecastCard(forecast.hourly, unitSystem)
-        }
-        item {
-            AdaptiveTwoColumn(
-                left = { modifier -> PrecipitationCard(modifier, forecast, unitSystem) },
-                right = { modifier -> WindCard(modifier, forecast, unitSystem) },
-            )
-        }
-        item {
-            AdaptiveTwoColumn(
-                left = { modifier -> SevenDayForecastCard(modifier, forecast, unitSystem) },
-                right = { modifier ->
-                    Column(
-                        modifier = modifier,
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        RainfallOutlookCard(Modifier.fillMaxWidth(), forecast, unitSystem)
-                        SunriseSunsetCard(Modifier.fillMaxWidth(), forecast)
-                        DryWindowCard(Modifier.fillMaxWidth(), forecast)
-                    }
-                },
-            )
-        }
-        item {
-            Spacer(modifier = Modifier.height(4.dp))
-        }
-        item {
-            OpenMeteoAttribution()
-        }
+        WeatherHeroCard(
+            forecast = forecast,
+            unitSystem = unitSystem,
+            backgroundWeather = backgroundWeather,
+            onLocationClick = onLocationClick,
+        )
+        ForecastRangeSelector(
+            selected = selectedRange,
+            onSelected = onRangeSelected,
+        )
+        HourlyForecastCard(forecast.hourly, unitSystem)
+        AdaptiveTwoColumn(
+            left = { childModifier -> PrecipitationCard(childModifier, forecast, unitSystem) },
+            right = { childModifier -> WindCard(childModifier, forecast, unitSystem) },
+        )
+        AdaptiveTwoColumn(
+            left = { childModifier -> SevenDayForecastCard(childModifier, forecast, unitSystem) },
+            right = { childModifier ->
+                Column(
+                    modifier = childModifier,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    RainfallOutlookCard(Modifier.fillMaxWidth(), forecast, unitSystem)
+                    SunriseSunsetCard(Modifier.fillMaxWidth(), forecast)
+                    DryWindowCard(Modifier.fillMaxWidth(), forecast)
+                }
+            },
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        OpenMeteoAttribution()
     }
 }
 

@@ -29,6 +29,7 @@ class MainActivityTest {
                     requestLocationPermission = false,
                     checkForUpdates = false,
                     updateWidget = false,
+                    useNativeBriefingScrollCapture = false,
                 )
             }
         }
