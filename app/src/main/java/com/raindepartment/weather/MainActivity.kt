@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -1100,52 +1101,65 @@ private fun BriefingScreen(
     errorMessage: String?,
     onLocationClick: () -> Unit,
 ) {
-    Column(
+    LazyColumn(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (isRefreshing || isStale || errorMessage != null) {
-            WeatherStatusBanner(
-                isRefreshing = isRefreshing,
-                isStale = isStale,
-                errorMessage = errorMessage,
+            item {
+                WeatherStatusBanner(
+                    isRefreshing = isRefreshing,
+                    isStale = isStale,
+                    errorMessage = errorMessage,
+                )
+            }
+        }
+        item {
+            WeatherHeroCard(
+                forecast = forecast,
+                unitSystem = unitSystem,
+                backgroundWeather = backgroundWeather,
+                onLocationClick = onLocationClick,
             )
         }
-        WeatherHeroCard(
-            forecast = forecast,
-            unitSystem = unitSystem,
-            backgroundWeather = backgroundWeather,
-            onLocationClick = onLocationClick,
-        )
-        ForecastRangeSelector(
-            selected = selectedRange,
-            onSelected = onRangeSelected,
-        )
-        HourlyForecastCard(forecast.hourly, unitSystem)
-
-        AdaptiveTwoColumn(
-            left = { modifier -> PrecipitationCard(modifier, forecast, unitSystem) },
-            right = { modifier -> WindCard(modifier, forecast, unitSystem) },
-        )
-
-        AdaptiveTwoColumn(
-            left = { modifier -> SevenDayForecastCard(modifier, forecast, unitSystem) },
-            right = { modifier ->
-                Column(
-                    modifier = modifier,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    RainfallOutlookCard(Modifier.fillMaxWidth(), forecast, unitSystem)
-                    SunriseSunsetCard(Modifier.fillMaxWidth(), forecast)
-                    DryWindowCard(Modifier.fillMaxWidth(), forecast)
-                }
-            },
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        OpenMeteoAttribution()
+        item {
+            ForecastRangeSelector(
+                selected = selectedRange,
+                onSelected = onRangeSelected,
+            )
+        }
+        item {
+            HourlyForecastCard(forecast.hourly, unitSystem)
+        }
+        item {
+            AdaptiveTwoColumn(
+                left = { modifier -> PrecipitationCard(modifier, forecast, unitSystem) },
+                right = { modifier -> WindCard(modifier, forecast, unitSystem) },
+            )
+        }
+        item {
+            AdaptiveTwoColumn(
+                left = { modifier -> SevenDayForecastCard(modifier, forecast, unitSystem) },
+                right = { modifier ->
+                    Column(
+                        modifier = modifier,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        RainfallOutlookCard(Modifier.fillMaxWidth(), forecast, unitSystem)
+                        SunriseSunsetCard(Modifier.fillMaxWidth(), forecast)
+                        DryWindowCard(Modifier.fillMaxWidth(), forecast)
+                    }
+                },
+            )
+        }
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        item {
+            OpenMeteoAttribution()
+        }
     }
 }
 

@@ -1,9 +1,11 @@
 package com.raindepartment.weather
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -35,7 +37,9 @@ class MainActivityTest {
     @Test
     fun briefingDashboardShowsReferenceContent() {
         composeRule.onNodeWithText("Rain starts in").assertIsDisplayed()
-        composeRule.onNodeWithText("Hourly Precipitation, Temperature & Wind").assertIsDisplayed()
+        composeRule
+            .onAllNodesWithText("Hourly Precipitation, Temperature & Wind")
+            .assertCountEquals(1)
         composeRule.onNodeWithText("80%").assertIsDisplayed()
         composeRule.onNodeWithText("Briefing").assertIsDisplayed()
     }
