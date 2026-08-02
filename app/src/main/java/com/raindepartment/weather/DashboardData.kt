@@ -148,8 +148,19 @@ internal fun DashboardForecast.temperatureWithUnit(
 
 internal fun DashboardForecast.precipitation(valueInches: Double, unitSystem: UnitSystem): String {
     return when (unitSystem) {
-        UnitSystem.IMPERIAL -> String.format(Locale.US, "%.2f in", valueInches)
-        UnitSystem.METRIC -> String.format(Locale.US, "%.1f mm", valueInches * 25.4)
+        UnitSystem.IMPERIAL -> if (valueInches > 0.0 && valueInches < 0.005) {
+            "<0.01 in"
+        } else {
+            String.format(Locale.US, "%.2f in", valueInches)
+        }
+        UnitSystem.METRIC -> {
+            val millimeters = valueInches * 25.4
+            if (millimeters > 0.0 && millimeters < 0.05) {
+                "<0.1 mm"
+            } else {
+                String.format(Locale.US, "%.1f mm", millimeters)
+            }
+        }
     }
 }
 

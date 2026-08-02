@@ -23,6 +23,15 @@ class DashboardDataTest {
     }
 
     @Test
+    fun tinyPositiveRainfallIsShownAsTraceInsteadOfZero() {
+        val forecast = testForecast()
+
+        assertEquals("<0.1 mm", forecast.precipitation(0.001, UnitSystem.METRIC))
+        assertEquals("<0.01 in", forecast.precipitation(0.001, UnitSystem.IMPERIAL))
+        assertEquals("0.0 mm", forecast.precipitation(0.0, UnitSystem.METRIC))
+    }
+
+    @Test
     fun currentWeatherCarriesLiveConditionAndWidgetValues() {
         val current = testForecast().currentWeather()
 

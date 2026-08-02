@@ -122,6 +122,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.semantics.contentDescription
@@ -133,6 +134,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -2471,6 +2475,28 @@ private data class TimelineThunderstormRiskState(
     val points: List<ThunderstormRiskPoint> = emptyList(),
 )
 
+private class TimelineRainTooltipPositionProvider(
+    private val anchorFraction: Float,
+    private val gapPixels: Int,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: androidx.compose.ui.unit.IntRect,
+        windowSize: androidx.compose.ui.unit.IntSize,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        popupContentSize: androidx.compose.ui.unit.IntSize,
+    ): androidx.compose.ui.unit.IntOffset {
+        val anchorX = anchorBounds.left + (anchorBounds.width * anchorFraction).roundToInt()
+        val preferredX = anchorX - popupContentSize.width / 2
+        val preferredY = anchorBounds.top + gapPixels - popupContentSize.height
+        val maxX = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+        val maxY = (windowSize.height - popupContentSize.height).coerceAtLeast(0)
+        return androidx.compose.ui.unit.IntOffset(
+            x = preferredX.coerceIn(0, maxX),
+            y = preferredY.coerceIn(0, maxY),
+        )
+    }
+}
+
 private fun timelineIntensityPointCount(
     radarState: TimelineRadarState,
     fallbackPoints: List<TimelineIntensityPoint>,
@@ -3281,12 +3307,11 @@ private fun TimelineIntensityBars(
 ) {
     val labelStep = if (points.size <= 5) 1 else (points.size / 4).coerceAtLeast(1)
     val graphHeight = 60.dp
-    val tooltipLaneHeight = if (selectedIndex != null) 196.dp else 0.dp
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(tooltipLaneHeight + graphHeight),
+                .height(graphHeight),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -3320,7 +3345,7 @@ private fun TimelineIntensityBars(
             BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight(),
+                    .height(graphHeight),
             ) {
                 val graphWidth = maxWidth
                 val graph = Modifier
@@ -3446,26 +3471,35 @@ private fun TimelineIntensityBars(
                     val tooltipWidth = graphWidth.coerceAtMost(292.dp)
                     val cellWidth = graphWidth / points.size
                     val centerX = cellWidth * (index + 0.5f)
-                    val maxOffset = (graphWidth - tooltipWidth).coerceAtLeast(0.dp)
-                    val tooltipOffset = (centerX - tooltipWidth / 2f)
-                        .coerceIn(0.dp, maxOffset)
-                    val tooltipAnchorOffset = (centerX - tooltipOffset)
+                    val tooltipLeftOffset = (centerX - tooltipWidth / 2f)
+                        .coerceIn(0.dp, (graphWidth - tooltipWidth).coerceAtLeast(0.dp))
+                    val tooltipAnchorOffset = (centerX - tooltipLeftOffset)
                         .coerceIn(10.dp, tooltipWidth - 10.dp)
-                    TimelineRainDetailsTooltip(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = tooltipOffset, y = 2.dp)
-                            .width(tooltipWidth),
-                        point = points[index],
-                        points = points,
-                        selectedIndex = index,
-                        selectedHour = selectedHour,
-                        hourly = hourly,
-                        unitSystem = unitSystem,
-                        zoneId = zoneId,
-                        thunderstormRiskState = thunderstormRiskState,
-                        anchorOffset = tooltipAnchorOffset,
-                    )
+                    Popup(
+                        popupPositionProvider = TimelineRainTooltipPositionProvider(
+                            anchorFraction = (index + 0.5f) / points.size.toFloat(),
+                            gapPixels = with(LocalDensity.current) { 4.dp.roundToPx() },
+                        ),
+                        properties = PopupProperties(
+                            focusable = false,
+                            dismissOnBackPress = false,
+                            dismissOnClickOutside = false,
+                            clippingEnabled = false,
+                        ),
+                    ) {
+                        TimelineRainDetailsTooltip(
+                            modifier = Modifier.width(tooltipWidth),
+                            point = points[index],
+                            points = points,
+                            selectedIndex = index,
+                            selectedHour = selectedHour,
+                            hourly = hourly,
+                            unitSystem = unitSystem,
+                            zoneId = zoneId,
+                            thunderstormRiskState = thunderstormRiskState,
+                            anchorOffset = tooltipAnchorOffset,
+                        )
+                    }
                 }
             }
         }
