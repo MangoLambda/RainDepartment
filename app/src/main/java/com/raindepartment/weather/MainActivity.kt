@@ -5,7 +5,9 @@ import android.app.Activity
 import android.content.Context
 import android.os.Bundle
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.ScrollView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -1189,6 +1191,7 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
 
     init {
         isFillViewport = false
+        overScrollMode = View.OVER_SCROLL_NEVER
         setVerticalScrollBarEnabled(false)
         addView(composeView)
         composeView.setContent {
@@ -1212,6 +1215,8 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
         val action = event.actionMasked
         when (action) {
             MotionEvent.ACTION_DOWN -> {
+                composeView.animate().cancel()
+                composeView.translationY = 0f
                 pullStartX = event.x
                 pullStartY = event.y
                 pullDistance = 0f
@@ -1222,6 +1227,7 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
                 val deltaY = event.y - pullStartY
                 val deltaX = event.x - pullStartX
                 pullDistance = if (deltaY > 0f && deltaY > abs(deltaX)) deltaY else 0f
+                composeView.translationY = pullDistance
             }
 
             MotionEvent.ACTION_UP -> {
@@ -1229,6 +1235,7 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
                     pullDistance >= pullToRefreshDistancePx &&
                     !isRefreshing
                 resetPullGesture()
+                settlePullGesture()
                 if (shouldRefresh) {
                     post {
                         if (!isRefreshing) onRefresh?.invoke()
@@ -1236,7 +1243,10 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
                 }
             }
 
-            MotionEvent.ACTION_CANCEL -> resetPullGesture()
+            MotionEvent.ACTION_CANCEL -> {
+                resetPullGesture()
+                settlePullGesture()
+            }
         }
         return super.dispatchTouchEvent(event)
     }
@@ -1246,8 +1256,18 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
         pullDistance = 0f
     }
 
+    private fun settlePullGesture() {
+        if (composeView.translationY == 0f) return
+        composeView.animate()
+            .translationY(0f)
+            .setDuration(PULL_RELEASE_ANIMATION_MS)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
+    }
+
     private companion object {
         const val PULL_TO_REFRESH_DISTANCE_DP = 64f
+        const val PULL_RELEASE_ANIMATION_MS = 180L
     }
 }
 
