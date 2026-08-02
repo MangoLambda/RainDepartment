@@ -42,7 +42,7 @@ object WeatherWidget : GlanceAppWidget() {
             if (snapshot == null) {
                 WeatherWidgetUnavailable()
             } else {
-                val weather = snapshot.forecast.currentWeather()
+                val weather = snapshot.forecast.widgetWeather()
                 val backplate = remember(
                     refreshState,
                     weather.condition,
@@ -103,6 +103,20 @@ internal fun widgetLocationLabel(location: String): String = location
             line.take(WIDGET_LOCATION_LINE_LIMIT - 1).trimEnd() + "…"
         }
     }
+
+internal fun DashboardForecast.widgetWeather(): CurrentWeather {
+    val today = daily.firstOrNull()
+    return CurrentWeather(
+        location = location,
+        condition = today?.condition ?: condition,
+        conditionLabel = today?.conditionLabel ?: conditionLabel,
+        isDay = isDay,
+        currentFahrenheit = currentFahrenheit,
+        highFahrenheit = today?.highFahrenheit ?: highFahrenheit,
+        lowFahrenheit = today?.lowFahrenheit ?: lowFahrenheit,
+        precipitationChance = today?.precipitationChance ?: precipitationChance,
+    )
+}
 
 @androidx.compose.runtime.Composable
 private fun WeatherWidgetUnavailable() {
@@ -232,7 +246,7 @@ private fun WeatherWidgetContent(
                             Spacer(modifier = GlanceModifier.height(4.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "${forecast.precipitationChance}%",
+                                    text = "${weather.precipitationChance}%",
                                     style = TextStyle(
                                         color = WidgetWhite,
                                         fontSize = 11.sp,
