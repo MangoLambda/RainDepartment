@@ -334,6 +334,9 @@ internal object WeatherSnapshotCodec {
                 put("windMph", item.windMph)
                 put("windDirection", item.windDirection)
                 put("windDirectionLabel", item.windDirectionLabel)
+                put("condition", item.condition.name)
+                put("conditionLabel", item.conditionLabel)
+                put("timeEpochMillis", item.timeEpochMillis)
             })
         }
     }
@@ -350,6 +353,13 @@ internal object WeatherSnapshotCodec {
                     windMph = root.getInt("windMph"),
                     windDirection = root.getString("windDirection"),
                     windDirectionLabel = root.getString("windDirectionLabel"),
+                    condition = runCatching {
+                        WeatherCondition.valueOf(
+                            root.optString("condition", WeatherCondition.OVERCAST.name),
+                        )
+                    }.getOrDefault(WeatherCondition.OVERCAST),
+                    conditionLabel = root.optString("conditionLabel", "Overcast"),
+                    timeEpochMillis = root.optionalLong("timeEpochMillis"),
                 ),
             )
         }

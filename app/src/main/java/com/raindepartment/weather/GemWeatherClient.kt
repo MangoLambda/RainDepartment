@@ -154,15 +154,21 @@ internal object GemWeatherParser {
                 windMph = hourlyWind[index].coerceAtLeast(0.0),
             )
         }
-        fun hourlyForecast(index: Int, time: String = formatHour(hourlyTimes[index])) = HourlyForecast(
-            time = time,
-            precipitationChance = hourlyChance[index].roundToInt().coerceIn(0, 100),
-            rainfallInches = hourlyPrecipitation[index].coerceAtLeast(0.0),
-            temperatureFahrenheit = hourlyTemperature[index].roundToInt(),
-            windMph = hourlyWind[index].roundToInt().coerceAtLeast(0),
-            windDirection = compassDirection(hourlyDirections[index]),
-            windDirectionLabel = compassDirection(hourlyDirections[index]),
-        )
+        fun hourlyForecast(index: Int, time: String = formatHour(hourlyTimes[index])): HourlyForecast {
+            val condition = conditionForCode(hourlyCodes[index].roundToInt())
+            return HourlyForecast(
+                time = time,
+                precipitationChance = hourlyChance[index].roundToInt().coerceIn(0, 100),
+                rainfallInches = hourlyPrecipitation[index].coerceAtLeast(0.0),
+                temperatureFahrenheit = hourlyTemperature[index].roundToInt(),
+                windMph = hourlyWind[index].roundToInt().coerceAtLeast(0),
+                windDirection = compassDirection(hourlyDirections[index]),
+                windDirectionLabel = compassDirection(hourlyDirections[index]),
+                condition = condition.first,
+                conditionLabel = condition.second,
+                timeEpochMillis = hourlyTimes[index].toInstant().toEpochMilli(),
+            )
+        }
 
         val currentTime = parseApiTime(current.requiredString("time"), zoneId)
         val currentIndex = hourlyTimes.indices.minByOrNull { index ->

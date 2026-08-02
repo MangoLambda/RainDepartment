@@ -47,6 +47,22 @@ class MainActivityTest {
     }
 
     @Test
+    fun timelineShowsExpandedHourAndMovesSelection() {
+        composeRule.onNodeWithText("Timeline").performClick()
+
+        composeRule.onNodeWithText("Hourly timeline").assertIsDisplayed()
+        composeRule.onNodeWithText("Precipitation Intensity").assertIsDisplayed()
+        composeRule.onNodeWithText("Radar intensity · 6 min").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Now forecast, expanded").assertIsDisplayed()
+
+        composeRule
+            .onNodeWithContentDescription("1 PM forecast, collapsed")
+            .performClick()
+        composeRule.onNodeWithContentDescription("1 PM forecast, expanded").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Now forecast, collapsed").assertIsDisplayed()
+    }
+
+    @Test
     fun sevenDayRangeShowsOutlookContent() {
         composeRule.onNodeWithText("7 Days").performClick()
         composeRule.onNodeWithText("Next 7 Days Outlook").assertIsDisplayed()
@@ -172,7 +188,44 @@ class MainActivityTest {
                 peakWindMph = 15,
                 peakWindDirection = "ESE",
                 peakWindTime = "2 PM",
-                hourly = listOf(HourlyForecast("Now", 30, 0.0, 84, 8, "N", "N")),
+                hourly = listOf(
+                    HourlyForecast(
+                        "Now",
+                        30,
+                        0.0,
+                        84,
+                        8,
+                        "N",
+                        "N",
+                        WeatherCondition.PARTLY_CLOUDY,
+                        "Partly cloudy",
+                        1_000_000L,
+                    ),
+                    HourlyForecast(
+                        "1 PM",
+                        60,
+                        0.1,
+                        85,
+                        10,
+                        "N",
+                        "N",
+                        WeatherCondition.RAIN,
+                        "Rain",
+                        1_360_000L,
+                    ),
+                    HourlyForecast(
+                        "2 PM",
+                        80,
+                        0.2,
+                        83,
+                        12,
+                        "S",
+                        "S",
+                        WeatherCondition.HEAVY_RAIN,
+                        "Heavy rain",
+                        1_720_000L,
+                    ),
+                ),
                 precipitation24h = listOf(ChartPoint("Now", 0.0f)),
                 windByHour = listOf(ChartPoint("Now", 8.0f)),
                 daily = listOf(
@@ -231,5 +284,15 @@ class MainActivityTest {
             location: WeatherLocation,
             timeEpochMillis: Long,
         ): EcccRadarMapFrame = EcccRadarMapFrame(timeEpochMillis, ByteArray(0))
+
+        override suspend fun fetchRainRateSeries(
+            location: WeatherLocation,
+            startEpochMillis: Long,
+            endEpochMillis: Long,
+        ): List<EcccRadarRainRatePoint> = listOf(
+            EcccRadarRainRatePoint(1_000_000L, 0.1),
+            EcccRadarRainRatePoint(1_360_000L, 0.8),
+            EcccRadarRainRatePoint(1_720_000L, 0.4),
+        )
     }
 }

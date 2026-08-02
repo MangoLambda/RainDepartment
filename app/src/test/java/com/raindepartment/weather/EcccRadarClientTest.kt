@@ -117,6 +117,28 @@ class EcccRadarClientTest {
         assertEquals(window.startEpochMillis, latestEcccRadarFrameTime(window, 0L))
     }
 
+    @Test
+    fun radarSeriesUsesSixMinuteFramesWithinRequestedWindow() {
+        val window = EcccRadarTimeWindow(
+            startEpochMillis = 1_000L,
+            endEpochMillis = 1_000L + 30 * 60_000L,
+            intervalMillis = 6 * 60_000L,
+        )
+
+        assertEquals(
+            listOf(
+                1_000L + 6 * 60_000L,
+                1_000L + 12 * 60_000L,
+                1_000L + 18 * 60_000L,
+            ),
+            ecccRadarFrameTimes(
+                window = window,
+                requestedStartEpochMillis = 1_000L + 5 * 60_000L,
+                requestedEndEpochMillis = 1_000L + 20 * 60_000L,
+            ),
+        )
+    }
+
     private fun decodedQueryValue(url: String, key: String): String = url
         .substringAfter("?")
         .split("&")

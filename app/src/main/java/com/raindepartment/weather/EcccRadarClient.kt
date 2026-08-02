@@ -13,6 +13,9 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -26,6 +29,11 @@ internal data class EcccRadarTimeWindow(
 internal data class EcccRadarRainStart(
     val startsAtEpochMillis: Long,
     val confidenceMeaningful: Boolean,
+)
+
+internal data class EcccRadarRainRatePoint(
+    val timeEpochMillis: Long,
+    val rateMillimetersPerHour: Double,
 )
 
 internal data class EcccRadarMapViewport(
@@ -88,10 +96,16 @@ internal interface EcccRadarClient {
     suspend fun findRainStart(
         location: WeatherLocation,
         nowEpochMillis: Long,
-    ): EcccRadarRainStart?
+    ): EcccRadarRainStart? = null
+
+    suspend fun fetchRainRateSeries(
+        location: WeatherLocation,
+        startEpochMillis: Long,
+        endEpochMillis: Long,
+    ): List<EcccRadarRainRatePoint> = emptyList()
 }
 
-internal interface EcccRadarMapClient {
+internal interface EcccRadarMapClient : EcccRadarClient {
     suspend fun fetchLatest(
         location: WeatherLocation,
         nowEpochMillis: Long,
@@ -199,6 +213,36 @@ internal class HttpEcccRadarClient(
                 startsAtEpochMillis = it,
                 confidenceMeaningful = false,
             )
+        }
+    }
+
+    override suspend fun fetchRainRateSeries(
+        location: WeatherLocation,
+        startEpochMillis: Long,
+        endEpochMillis: Long,
+    ): List<EcccRadarRainRatePoint> = withContext(Dispatchers.IO) {
+        val window = fetchTimeWindow()
+        val frameTimes = ecccRadarFrameTimes(window, startEpochMillis, endEpochMillis)
+        coroutineScope {
+            frameTimes.map { time ->
+                async {
+                    val rate = try {
+                        fetchRainRate(location, time)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                    rate?.let {
+                        EcccRadarRainRatePoint(
+                            timeEpochMillis = time,
+                            rateMillimetersPerHour = it,
+                        )
+                    }
+                }
+            }
+                .awaitAll()
+                .filterNotNull()
         }
     }
 
@@ -628,4 +672,24 @@ internal fun latestEcccRadarFrameTime(
     val elapsedIntervals = (candidate - window.startEpochMillis) / window.intervalMillis
     return (window.startEpochMillis + elapsedIntervals * window.intervalMillis)
         .coerceIn(window.startEpochMillis, window.endEpochMillis)
+}
+
+internal fun ecccRadarFrameTimes(
+    window: EcccRadarTimeWindow,
+    requestedStartEpochMillis: Long,
+    requestedEndEpochMillis: Long,
+): List<Long> {
+    val start = max(window.startEpochMillis, requestedStartEpochMillis)
+    val end = min(window.endEpochMillis, requestedEndEpochMillis)
+    if (start > end) return emptyList()
+
+    val first = firstEcccRadarFrameTime(window, start)
+    if (first > end) return emptyList()
+
+    val frameCount = ((end - first) / window.intervalMillis)
+        .toInt()
+        .coerceIn(0, 120)
+    return List(frameCount + 1) { index ->
+        first + index * window.intervalMillis
+    }
 }

@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -98,6 +99,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -419,6 +421,28 @@ internal fun RainDepartmentApp(
                             onLocationClick = { isCityPickerVisible = true },
                             onRefresh = refreshForecastAndCheckForUpdates,
                             useNativeScrollCapture = useNativeBriefingScrollCapture,
+                        )
+                    } ?: BriefingUnavailableScreen(
+                        isRefreshing = weatherState.isRefreshing,
+                        errorMessage = weatherState.errorMessage,
+                    )
+                }
+
+                DashboardTab.TIMELINE -> RefreshableBriefingContent(
+                    isRefreshing = weatherState.isRefreshing,
+                    onRefresh = refreshForecastAndCheckForUpdates,
+                ) {
+                    weatherState.snapshot?.let { snapshot ->
+                        TimelineScreen(
+                            forecast = snapshot.forecast,
+                            location = snapshot.location,
+                            timezone = snapshot.timezone,
+                            unitSystem = unitSystem,
+                            isRefreshing = weatherState.isRefreshing,
+                            isStale = weatherState.isStale,
+                            errorMessage = weatherState.errorMessage,
+                            radarClient = radarMapClient,
+                            onLocationClick = { isCityPickerVisible = true },
                         )
                     } ?: BriefingUnavailableScreen(
                         isRefreshing = weatherState.isRefreshing,
@@ -2340,6 +2364,811 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
         const val PULL_DRAG_MULTIPLIER = 0.5f
         const val PULL_RELEASE_ANIMATION_MS = 180L
     }
+}
+
+private const val TIMELINE_RADAR_HALF_WINDOW_MILLIS = 60 * 60_000L
+
+private data class TimelineIntensityPoint(
+    val timeEpochMillis: Long,
+    val label: String,
+    val value: Float,
+)
+
+private data class TimelineRadarState(
+    val isLoading: Boolean = false,
+    val points: List<EcccRadarRainRatePoint> = emptyList(),
+)
+
+private val timelineChartTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+
+@Composable
+private fun TimelineScreen(
+    forecast: DashboardForecast,
+    location: WeatherLocation,
+    timezone: String,
+    unitSystem: UnitSystem,
+    isRefreshing: Boolean,
+    isStale: Boolean,
+    errorMessage: String?,
+    radarClient: EcccRadarClient,
+    onLocationClick: () -> Unit,
+) {
+    val hourly = forecast.hourly.take(24)
+    var selectedIndex by remember(forecast.location, forecast.rainStartsAtEpochMillis) {
+        mutableIntStateOf(defaultTimelineHourIndex(forecast))
+    }
+    LaunchedEffect(hourly.size) {
+        if (hourly.isNotEmpty()) {
+            selectedIndex = selectedIndex.coerceIn(0, hourly.lastIndex)
+        }
+    }
+
+    val selectedHour = hourly.getOrNull(selectedIndex)
+    val radarCache = remember(forecast.location) {
+        mutableStateMapOf<Long, List<EcccRadarRainRatePoint>>()
+    }
+    var radarState by remember(forecast.location) { mutableStateOf(TimelineRadarState()) }
+    LaunchedEffect(
+        location,
+        selectedHour?.timeEpochMillis,
+    ) {
+        val centerEpochMillis = selectedHour?.timeEpochMillis
+        if (centerEpochMillis == null) {
+            radarState = TimelineRadarState()
+            return@LaunchedEffect
+        }
+
+        if (radarCache.containsKey(centerEpochMillis)) {
+            radarState = TimelineRadarState(
+                points = radarCache[centerEpochMillis].orEmpty(),
+            )
+            return@LaunchedEffect
+        }
+
+        radarState = TimelineRadarState(isLoading = true)
+        val points = runCatching {
+            radarClient.fetchRainRateSeries(
+                location = location,
+                startEpochMillis = centerEpochMillis - TIMELINE_RADAR_HALF_WINDOW_MILLIS,
+                endEpochMillis = centerEpochMillis + TIMELINE_RADAR_HALF_WINDOW_MILLIS,
+            )
+        }.getOrDefault(emptyList())
+        radarCache[centerEpochMillis] = points
+        radarState = TimelineRadarState(points = points)
+    }
+
+    val zoneId = remember(timezone) {
+        runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.systemDefault())
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = 12.dp,
+            vertical = 10.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (!isRefreshing && (isStale || errorMessage != null)) {
+            item(key = "timeline-status") {
+                WeatherStatusBanner(
+                    isStale = isStale,
+                    errorMessage = errorMessage,
+                )
+            }
+        }
+
+        item(key = "timeline-summary") {
+            TimelineSummaryCard(
+                forecast = forecast,
+                unitSystem = unitSystem,
+                onLocationClick = onLocationClick,
+            )
+        }
+
+        item(key = "timeline-heading") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Hourly timeline",
+                    modifier = Modifier.weight(1f),
+                    color = DeepBlue,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "Next 24 hours",
+                    color = AccentBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+
+        if (hourly.isEmpty()) {
+            item(key = "timeline-empty") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = CardWhite,
+                    border = BorderStroke(1.dp, CardBorder),
+                ) {
+                    Text(
+                        text = "Hourly forecast is not available yet.",
+                        modifier = Modifier.padding(18.dp),
+                        color = MutedNavy,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+        } else {
+            itemsIndexed(
+                items = hourly,
+                key = { index, item -> item.timeEpochMillis ?: "${item.time}-$index" },
+            ) { index, hour ->
+                TimelineHourItem(
+                    hour = hour,
+                    forecast = forecast,
+                    unitSystem = unitSystem,
+                    selected = index == selectedIndex,
+                    radarState = if (index == selectedIndex) radarState else TimelineRadarState(),
+                    fallbackPoints = timelineForecastIntensityPoints(
+                        hourly = hourly,
+                        selectedIndex = index,
+                        unitSystem = unitSystem,
+                    ),
+                    zoneId = zoneId,
+                    onClick = { selectedIndex = index },
+                )
+            }
+        }
+
+        item(key = "timeline-attribution") {
+            OpenMeteoAttribution()
+        }
+    }
+}
+
+@Composable
+private fun TimelineSummaryCard(
+    forecast: DashboardForecast,
+    unitSystem: UnitSystem,
+    onLocationClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = CardWhite),
+        border = BorderStroke(1.dp, Color(0xFFC9E1F5)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onLocationClick),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.LocationOn,
+                    contentDescription = null,
+                    tint = DeepBlue,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = forecast.location,
+                    modifier = Modifier.weight(1f),
+                    color = DeepBlue,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = Icons.Outlined.ChevronRight,
+                    contentDescription = "Choose city",
+                    tint = DeepBlue,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TimelineConditionIcon(forecast.condition, Modifier.size(58.dp))
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = timelineTitleCase(forecast.conditionLabel),
+                        color = DeepBlue,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = forecast.temperature(forecast.currentFahrenheit, unitSystem),
+                        color = DarkBlue,
+                        fontSize = 42.sp,
+                        lineHeight = 44.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = timelineRainMessage(forecast),
+                        color = MutedNavy,
+                        fontSize = 11.sp,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "H ${forecast.temperature(forecast.highFahrenheit, unitSystem)}  " +
+                            "L ${forecast.temperature(forecast.lowFahrenheit, unitSystem)}",
+                        color = DeepBlue,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Feels like ${forecast.temperature(forecast.feelsLikeFahrenheit, unitSystem)}",
+                        color = MutedNavy,
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TimelineSummaryMetric(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.WaterDrop,
+                    value = "${forecast.precipitationChance}%",
+                    label = "Chance of Rain",
+                    tint = AccentBlue,
+                )
+                TimelineMetricDivider()
+                TimelineSummaryMetric(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.WaterDrop,
+                    value = forecast.precipitation(forecast.expectedRainInches, unitSystem),
+                    label = "Expected Rain",
+                    tint = AccentBlue,
+                )
+                TimelineMetricDivider()
+                TimelineSummaryMetric(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Air,
+                    value = forecast.windSpeed(forecast.peakWindMph, unitSystem),
+                    label = "Peak Wind",
+                    tint = Aqua,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineSummaryMetric(
+    modifier: Modifier,
+    icon: ImageVector,
+    value: String,
+    label: String,
+    tint: Color,
+) {
+    Row(
+        modifier = modifier.padding(horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Column {
+            Text(
+                text = value,
+                color = DeepBlue,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            Text(
+                text = label,
+                color = MutedNavy,
+                fontSize = 8.sp,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineMetricDivider() {
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .height(32.dp)
+            .background(Color(0xFFDCE8F1)),
+    )
+}
+
+@Composable
+private fun TimelineConditionIcon(
+    condition: WeatherCondition,
+    modifier: Modifier,
+) {
+    if (condition in setOf(
+            WeatherCondition.DRIZZLE,
+            WeatherCondition.RAIN,
+            WeatherCondition.HEAVY_RAIN,
+        )
+    ) {
+        Box(modifier = modifier) {
+            Icon(
+                imageVector = Icons.Outlined.CloudQueue,
+                contentDescription = condition.name,
+                tint = AccentBlue,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Icon(
+                imageVector = Icons.Outlined.WaterDrop,
+                contentDescription = null,
+                tint = AccentBlue,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(15.dp)
+                    .offset(x = (-2).dp, y = 2.dp),
+            )
+        }
+    } else {
+        ConditionIcon(condition, modifier)
+    }
+}
+
+@Composable
+private fun TimelineHourItem(
+    hour: HourlyForecast,
+    forecast: DashboardForecast,
+    unitSystem: UnitSystem,
+    selected: Boolean,
+    radarState: TimelineRadarState,
+    fallbackPoints: List<TimelineIntensityPoint>,
+    zoneId: ZoneId,
+    onClick: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .width(28.dp)
+                .fillMaxHeight(),
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawLine(
+                    color = Color(0xFFD5E0E8),
+                    start = Offset(size.width / 2f, 0f),
+                    end = Offset(size.width / 2f, size.height),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 18.dp)
+                    .size(if (selected) 18.dp else 14.dp),
+                shape = CircleShape,
+                color = if (selected) AccentBlue else Color.White,
+                border = BorderStroke(
+                    width = if (selected) 3.dp else 1.dp,
+                    color = if (selected) Color(0xFFB9DDF8) else Color(0xFFD5E0E8),
+                ),
+            ) {}
+        }
+        Surface(
+            modifier = Modifier
+                .weight(1f)
+                .semantics {
+                    contentDescription = if (selected) {
+                        "${hour.time} forecast, expanded"
+                    } else {
+                        "${hour.time} forecast, collapsed"
+                    }
+                }
+                .clickable(onClick = onClick),
+            shape = RoundedCornerShape(16.dp),
+            color = if (selected) Color(0xFFF3F8FE) else Color.White,
+            border = BorderStroke(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) Color(0xFF74B6ED) else Color(0xFFE0E8EF),
+            ),
+            shadowElevation = if (selected) 2.dp else 0.dp,
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 9.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = hour.time,
+                        modifier = Modifier.width(45.dp),
+                        color = DeepBlue,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                    TimelineConditionIcon(hour.condition, Modifier.size(34.dp))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp),
+                    ) {
+                        Text(
+                            text = timelineTitleCase(hour.conditionLabel),
+                            color = DeepBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = timelineConditionDescription(hour.condition),
+                            color = MutedNavy,
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Text(
+                        text = forecast.temperature(hour.temperatureFahrenheit, unitSystem),
+                        modifier = Modifier.width(43.dp),
+                        color = DarkBlue,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.End,
+                    )
+                    Column(
+                        modifier = Modifier.width(78.dp),
+                        horizontalAlignment = Alignment.End,
+                    ) {
+                        TimelineMiniMetric(
+                            icon = Icons.Outlined.WaterDrop,
+                            value = "${hour.precipitationChance}%",
+                            tint = AccentBlue,
+                        )
+                        Text(
+                            text = forecast.precipitation(hour.rainfallInches, unitSystem),
+                            color = DeepBlue,
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                        )
+                        TimelineMiniMetric(
+                            icon = Icons.Outlined.Air,
+                            value = forecast.windSpeed(hour.windMph, unitSystem),
+                            tint = Aqua,
+                        )
+                    }
+                }
+                if (selected) {
+                    TimelineExpandedDetails(
+                        hour = hour,
+                        forecast = forecast,
+                        unitSystem = unitSystem,
+                        radarState = radarState,
+                        fallbackPoints = fallbackPoints,
+                        zoneId = zoneId,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineMiniMetric(
+    icon: ImageVector,
+    value: String,
+    tint: Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(modifier = Modifier.width(3.dp))
+        Text(
+            text = value,
+            color = DeepBlue,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun TimelineExpandedDetails(
+    hour: HourlyForecast,
+    forecast: DashboardForecast,
+    unitSystem: UnitSystem,
+    radarState: TimelineRadarState,
+    fallbackPoints: List<TimelineIntensityPoint>,
+    zoneId: ZoneId,
+) {
+    Column(
+        modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TimelineIntensityChart(
+            radarState = radarState,
+            fallbackPoints = fallbackPoints,
+            zoneId = zoneId,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TimelineDetailMetric(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.WaterDrop,
+                value = "${hour.precipitationChance}%",
+                label = "Chance of Rain",
+                tint = AccentBlue,
+            )
+            TimelineMetricDivider()
+            TimelineDetailMetric(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.WaterDrop,
+                value = forecast.precipitation(hour.rainfallInches, unitSystem),
+                label = "Rain Amount",
+                tint = AccentBlue,
+            )
+            TimelineMetricDivider()
+            TimelineDetailMetric(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.Air,
+                value = forecast.windSpeed(hour.windMph, unitSystem),
+                label = hour.windDirectionLabel,
+                tint = Aqua,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineDetailMetric(
+    modifier: Modifier,
+    icon: ImageVector,
+    value: String,
+    label: String,
+    tint: Color,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(21.dp),
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = value,
+                color = DeepBlue,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+        }
+        Text(
+            text = label,
+            color = MutedNavy,
+            fontSize = 8.sp,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun TimelineIntensityChart(
+    radarState: TimelineRadarState,
+    fallbackPoints: List<TimelineIntensityPoint>,
+    zoneId: ZoneId,
+) {
+    val useRadar = !radarState.isLoading && radarState.points.size >= 2
+    val points = if (useRadar) {
+        radarState.points.map { point ->
+            TimelineIntensityPoint(
+                timeEpochMillis = point.timeEpochMillis,
+                label = timelineChartTimeFormatter
+                    .withZone(zoneId)
+                    .format(Instant.ofEpochMilli(point.timeEpochMillis)),
+                value = point.rateMillimetersPerHour.toFloat(),
+            )
+        }
+    } else {
+        fallbackPoints
+    }
+    val sourceLabel = when {
+        radarState.isLoading -> "Loading radar intensity…"
+        useRadar -> "Radar intensity · 6 min"
+        else -> "Forecast precipitation"
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = sourceLabel },
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFFFBFDFF),
+        border = BorderStroke(1.dp, Color(0xFFE0EAF2)),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Precipitation Intensity",
+                    modifier = Modifier.weight(1f),
+                    color = AccentBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = sourceLabel,
+                    color = MutedNavy,
+                    fontSize = 8.sp,
+                    maxLines = 1,
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+            if (radarState.isLoading) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = AccentBlue,
+                    trackColor = Color(0xFFE1EFFB),
+                )
+            }
+            if (points.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(3.dp))
+                TimelineIntensityBars(points = points, useRadar = useRadar)
+            } else if (!radarState.isLoading) {
+                Text(
+                    text = "No precipitation intensity data for this hour.",
+                    color = MutedNavy,
+                    fontSize = 9.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineIntensityBars(
+    points: List<TimelineIntensityPoint>,
+    useRadar: Boolean,
+) {
+    val safeMax = points.maxOfOrNull { it.value }?.coerceAtLeast(0.1f) ?: 0.1f
+    val labelStep = if (points.size <= 5) 1 else (points.size / 4).coerceAtLeast(1)
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(62.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            points.forEach { point ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(
+                            (point.value / safeMax * 52f)
+                                .coerceAtLeast(4f)
+                                .dp,
+                        )
+                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                        .then(
+                            if (useRadar) {
+                                Modifier.background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFF6EB7F2), Color(0xFF167CDC)),
+                                )
+                                )
+                            } else {
+                                Modifier.background(Color(0xFF7DB7EA))
+                            },
+                        ),
+                )
+            }
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            points.forEachIndexed { index, point ->
+                Text(
+                    text = if (index % labelStep == 0 || index == points.lastIndex) {
+                        point.label
+                    } else {
+                        ""
+                    },
+                    modifier = Modifier.weight(1f),
+                    color = MutedNavy,
+                    fontSize = 7.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+private fun timelineForecastIntensityPoints(
+    hourly: List<HourlyForecast>,
+    selectedIndex: Int,
+    unitSystem: UnitSystem,
+): List<TimelineIntensityPoint> {
+    if (hourly.isEmpty()) return emptyList()
+    val start = (selectedIndex - 1).coerceAtLeast(0)
+    val end = (selectedIndex + 1).coerceAtMost(hourly.lastIndex)
+    return hourly.subList(start, end + 1).mapIndexed { offset, hour ->
+        TimelineIntensityPoint(
+            timeEpochMillis = hour.timeEpochMillis ?: offset.toLong(),
+            label = hour.time,
+            value = when (unitSystem) {
+                UnitSystem.METRIC -> (hour.rainfallInches * 25.4).toFloat()
+                UnitSystem.IMPERIAL -> hour.rainfallInches.toFloat()
+            },
+        )
+    }
+}
+
+private fun defaultTimelineHourIndex(forecast: DashboardForecast): Int {
+    val hourly = forecast.hourly.take(24)
+    if (hourly.isEmpty()) return 0
+    val rainStart = forecast.rainStartsAtEpochMillis
+    if (rainStart != null) {
+        hourly.indices.firstOrNull { index ->
+            hourly[index].timeEpochMillis?.let { it >= rainStart } == true
+        }?.let { return it }
+    }
+    return hourly.indexOfFirst { it.time == "Now" }.takeIf { it >= 0 } ?: 0
+}
+
+private fun timelineRainMessage(forecast: DashboardForecast): String = when {
+    forecast.rainStartsIn.equals("No rain expected", ignoreCase = true) -> "No rain expected"
+    forecast.rainStartsIn.equals("Now", ignoreCase = true) -> "Rain is falling now"
+    else -> "Rain begins in ${forecast.rainStartsIn}"
+}
+
+private fun timelineTitleCase(value: String): String = value
+    .replaceFirstChar { it.uppercase(Locale.getDefault()) }
+
+private fun timelineConditionDescription(condition: WeatherCondition): String = when (condition) {
+    WeatherCondition.CLEAR, WeatherCondition.MOSTLY_CLEAR -> "Clear skies."
+    WeatherCondition.PARTLY_CLOUDY -> "A mix of sun and clouds."
+    WeatherCondition.OVERCAST, WeatherCondition.FOG, WeatherCondition.ATMOSPHERIC_HAZE ->
+        "Mostly cloudy skies."
+    WeatherCondition.DRIZZLE -> "Light drizzle."
+    WeatherCondition.RAIN -> "Steady rain."
+    WeatherCondition.HEAVY_RAIN -> "Periods of heavy rain."
+    WeatherCondition.THUNDERSTORM, WeatherCondition.SEVERE_WEATHER -> "Stormy conditions."
+    WeatherCondition.SNOW, WeatherCondition.HEAVY_SNOW -> "Snow showers likely."
+    WeatherCondition.WINTRY_MIX -> "A wintry mix."
 }
 
 @Composable
@@ -4271,6 +5100,8 @@ private fun ConditionIcon(condition: WeatherCondition, modifier: Modifier) {
     val (icon, tint) = when (condition) {
         WeatherCondition.CLEAR, WeatherCondition.MOSTLY_CLEAR -> Icons.Outlined.WbSunny to Color(0xFFF4B52D)
         WeatherCondition.PARTLY_CLOUDY -> Icons.Outlined.CloudQueue to Color(0xFF6795C4)
+        WeatherCondition.OVERCAST, WeatherCondition.FOG, WeatherCondition.ATMOSPHERIC_HAZE ->
+            Icons.Outlined.Cloud to Color(0xFF71869E)
         WeatherCondition.SNOW, WeatherCondition.HEAVY_SNOW, WeatherCondition.WINTRY_MIX -> Icons.Outlined.AcUnit to AccentBlue
         WeatherCondition.THUNDERSTORM, WeatherCondition.SEVERE_WEATHER -> Icons.Outlined.Air to Color(0xFF5F77A7)
         else -> Icons.Outlined.WaterDrop to AccentBlue

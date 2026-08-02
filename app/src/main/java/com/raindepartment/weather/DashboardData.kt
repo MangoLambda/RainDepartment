@@ -25,6 +25,9 @@ internal data class HourlyForecast(
     val windMph: Int,
     val windDirection: String,
     val windDirectionLabel: String,
+    val condition: WeatherCondition = WeatherCondition.OVERCAST,
+    val conditionLabel: String = "Overcast",
+    val timeEpochMillis: Long? = null,
 )
 
 internal data class DailyForecast(

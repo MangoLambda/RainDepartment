@@ -3,6 +3,7 @@ package com.raindepartment.weather
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.json.JSONObject
 
 class WeatherSnapshotCodecTest {
     @Test
@@ -22,6 +23,32 @@ class WeatherSnapshotCodecTest {
     @Test
     fun invalidCacheIsIgnored() {
         assertNull(WeatherSnapshotCodec.decode("not weather"))
+    }
+
+    @Test
+    fun olderHourlyCacheEntriesUseTimelineDefaults() {
+        val root = JSONObject(WeatherSnapshotCodec.encode(
+            WeatherSnapshot(
+                location = AustinLocation,
+                timezone = "America/Chicago",
+                fetchedAtEpochMillis = 1234L,
+                forecast = DashboardForecastTestData.forecast,
+            ),
+        ))
+        root.getJSONObject("forecast")
+            .getJSONArray("hourly")
+            .getJSONObject(0)
+            .apply {
+                remove("condition")
+                remove("conditionLabel")
+                remove("timeEpochMillis")
+            }
+
+        val decoded = WeatherSnapshotCodec.decode(root.toString())
+
+        assertEquals(WeatherCondition.OVERCAST, decoded!!.forecast.hourly.first().condition)
+        assertEquals("Overcast", decoded.forecast.hourly.first().conditionLabel)
+        assertNull(decoded.forecast.hourly.first().timeEpochMillis)
     }
 }
 
