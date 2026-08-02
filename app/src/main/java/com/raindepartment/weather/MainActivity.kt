@@ -1646,6 +1646,7 @@ private fun HeroMetric(
                 text = value,
                 color = DeepBlue,
                 fontSize = 16.sp,
+                lineHeight = 18.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
             )
@@ -1653,6 +1654,7 @@ private fun HeroMetric(
                 text = label,
                 color = MutedNavy,
                 fontSize = 9.sp,
+                lineHeight = 10.sp,
                 maxLines = 1,
             )
         }
