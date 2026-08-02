@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.ScrollView
 import androidx.activity.ComponentActivity
@@ -117,6 +118,7 @@ import com.raindepartment.weather.update.AppUpdateManager
 import com.raindepartment.weather.update.UpdateRelease
 import com.raindepartment.weather.update.UpdateUiState
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import java.util.Locale
 import kotlin.math.max
 
@@ -146,8 +148,8 @@ internal fun RainDepartmentApp(
     requestLocationPermission: Boolean = true,
     checkForUpdates: Boolean = true,
     updateWidget: Boolean = true,
-    // Android ScrollView does not participate in PullToRefreshBox's nested scroll chain.
-    useNativeBriefingScrollCapture: Boolean = false,
+    // Keep native scrolling in production so Android long screenshots capture the full briefing.
+    useNativeBriefingScrollCapture: Boolean = true,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -309,6 +311,7 @@ internal fun RainDepartmentApp(
                             isStale = weatherState.isStale,
                             errorMessage = weatherState.errorMessage,
                             onLocationClick = { isCityPickerVisible = true },
+                            onRefresh = refreshForecast,
                             useNativeScrollCapture = useNativeBriefingScrollCapture,
                         )
                     } ?: BriefingUnavailableScreen(
@@ -1107,6 +1110,7 @@ private fun BriefingScreen(
     isStale: Boolean,
     errorMessage: String?,
     onLocationClick: () -> Unit,
+    onRefresh: () -> Unit,
     useNativeScrollCapture: Boolean,
 ) {
     val content: @Composable () -> Unit = {
@@ -1127,7 +1131,13 @@ private fun BriefingScreen(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { context -> BriefingScrollContainer(context) },
-            update = { container -> container.updateContent(content) },
+            update = { container ->
+                container.updateContent(
+                    content = content,
+                    onRefresh = onRefresh,
+                    isRefreshing = isRefreshing,
+                )
+            },
         )
     } else {
         BriefingContent(
@@ -1156,6 +1166,14 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
     }
 
     private var content by mutableStateOf<(@Composable () -> Unit)?>(null)
+    private var onRefresh: (() -> Unit)? = null
+    private var isRefreshing = false
+    private val pullToRefreshDistancePx =
+        context.resources.displayMetrics.density * PULL_TO_REFRESH_DISTANCE_DP
+    private var canPullToRefresh = false
+    private var pullStartX = 0f
+    private var pullStartY = 0f
+    private var pullDistance = 0f
 
     init {
         isFillViewport = false
@@ -1168,8 +1186,56 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
         }
     }
 
-    fun updateContent(content: @Composable () -> Unit) {
+    fun updateContent(
+        content: @Composable () -> Unit,
+        onRefresh: () -> Unit,
+        isRefreshing: Boolean,
+    ) {
         this.content = content
+        this.onRefresh = onRefresh
+        this.isRefreshing = isRefreshing
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        val action = event.actionMasked
+        when (action) {
+            MotionEvent.ACTION_DOWN -> {
+                pullStartX = event.x
+                pullStartY = event.y
+                pullDistance = 0f
+                canPullToRefresh = !isRefreshing && !canScrollVertically(-1)
+            }
+
+            MotionEvent.ACTION_MOVE -> if (canPullToRefresh) {
+                val deltaY = event.y - pullStartY
+                val deltaX = event.x - pullStartX
+                pullDistance = if (deltaY > 0f && deltaY > abs(deltaX)) deltaY else 0f
+            }
+
+            MotionEvent.ACTION_UP -> {
+                val shouldRefresh = canPullToRefresh &&
+                    pullDistance >= pullToRefreshDistancePx &&
+                    !isRefreshing
+                resetPullGesture()
+                if (shouldRefresh) {
+                    post {
+                        if (!isRefreshing) onRefresh?.invoke()
+                    }
+                }
+            }
+
+            MotionEvent.ACTION_CANCEL -> resetPullGesture()
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun resetPullGesture() {
+        canPullToRefresh = false
+        pullDistance = 0f
+    }
+
+    private companion object {
+        const val PULL_TO_REFRESH_DISTANCE_DP = 64f
     }
 }
 
@@ -1192,9 +1258,8 @@ private fun BriefingContent(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (isRefreshing || isStale || errorMessage != null) {
+        if (!isRefreshing && (isStale || errorMessage != null)) {
             WeatherStatusBanner(
-                isRefreshing = isRefreshing,
                 isStale = isStale,
                 errorMessage = errorMessage,
             )
@@ -1280,7 +1345,6 @@ private fun BriefingUnavailableScreen(
 
 @Composable
 private fun WeatherStatusBanner(
-    isRefreshing: Boolean,
     isStale: Boolean,
     errorMessage: String?,
 ) {
@@ -1298,7 +1362,6 @@ private fun WeatherStatusBanner(
         ) {
             Text(
                 text = when {
-                    isRefreshing -> "Updating live weather…"
                     errorMessage != null -> errorMessage
                     isStale -> "This forecast is more than six hours old."
                     else -> "Live weather updated."
@@ -1307,15 +1370,13 @@ private fun WeatherStatusBanner(
                 color = DeepBlue,
                 fontSize = 11.sp,
             )
-            if (!isRefreshing) {
-                Text(
-                    text = "Pull down to refresh",
-                    color = AccentBlue,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.End,
-                )
-            }
+            Text(
+                text = "Pull down to refresh",
+                color = AccentBlue,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.End,
+            )
         }
     }
 }
