@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -27,6 +28,7 @@ class MainActivityTest {
                 RainDepartmentApp(
                     repository = FakeWeatherRepository.create(),
                     radarClient = FakeRadarMapClient,
+                    thunderstormRiskClient = FakeThunderstormRiskClient,
                     requestLocationPermission = false,
                     checkForUpdates = false,
                     updateWidget = false,
@@ -65,6 +67,33 @@ class MainActivityTest {
             .performClick()
         composeRule.onNodeWithContentDescription("1 PM forecast, expanded").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Now forecast, collapsed").assertIsDisplayed()
+    }
+
+    @Test
+    fun tappingRainBarShowsAnchoredDetailsAndTappingItAgainDismisses() {
+        composeRule.onNodeWithText("Timeline").performClick()
+
+        composeRule.waitUntil(3_000) {
+            composeRule
+                .onAllNodesWithContentDescription("Select precipitation bar 2", substring = true)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+
+        val secondBar = composeRule.onNodeWithContentDescription(
+            "Select precipitation bar 2",
+            substring = true,
+        )
+        secondBar.performClick()
+        composeRule.onNodeWithText("Rain details").assertIsDisplayed()
+        composeRule.onNodeWithText("Time range").assertIsDisplayed()
+        composeRule.onNodeWithText("Rain rate").assertIsDisplayed()
+        composeRule.onNodeWithText("Precipitation risk").assertIsDisplayed()
+        composeRule.onNodeWithText("Thunderstorm risk").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Thunderstorm risk 20%").assertIsDisplayed()
+
+        secondBar.performClick()
+        composeRule.onAllNodesWithText("Rain details").assertCountEquals(0)
     }
 
     @Test
@@ -298,6 +327,17 @@ class MainActivityTest {
             EcccRadarRainRatePoint(1_000_000L, 0.1),
             EcccRadarRainRatePoint(1_360_000L, 0.8),
             EcccRadarRainRatePoint(1_720_000L, 0.4),
+        )
+    }
+
+    private object FakeThunderstormRiskClient : ThunderstormRiskClient {
+        override suspend fun fetchSeries(
+            location: WeatherLocation,
+            timezone: String,
+        ): List<ThunderstormRiskPoint> = listOf(
+            ThunderstormRiskPoint(1_000_000L, ThunderstormRiskValue.Percentage(20)),
+            ThunderstormRiskPoint(1_360_000L, ThunderstormRiskValue.Percentage(20)),
+            ThunderstormRiskPoint(1_720_000L, ThunderstormRiskValue.Percentage(20)),
         )
     }
 }

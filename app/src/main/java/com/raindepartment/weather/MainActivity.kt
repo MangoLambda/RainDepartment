@@ -70,6 +70,8 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Thunderstorm
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Umbrella
 import androidx.compose.material.icons.outlined.WaterDrop
@@ -177,6 +179,7 @@ class MainActivity : ComponentActivity() {
 internal fun RainDepartmentApp(
     repository: WeatherRepository? = null,
     radarClient: EcccRadarMapClient? = null,
+    thunderstormRiskClient: ThunderstormRiskClient? = null,
     requestLocationPermission: Boolean = true,
     checkForUpdates: Boolean = true,
     updateWidget: Boolean = true,
@@ -193,6 +196,9 @@ internal fun RainDepartmentApp(
         HttpEcccRadarClient(
             cache = FileEcccRadarMapCache(context.applicationContext),
         )
+    }
+    val riskClient = thunderstormRiskClient ?: remember(context) {
+        HttpThunderstormRiskClient()
     }
     val weatherState by weatherRepository.state.collectAsStateWithLifecycle()
     val weatherScope = rememberCoroutineScope()
@@ -442,6 +448,8 @@ internal fun RainDepartmentApp(
                             isStale = weatherState.isStale,
                             errorMessage = weatherState.errorMessage,
                             radarClient = radarMapClient,
+                            thunderstormRiskClient = riskClient,
+                            fetchedAtEpochMillis = snapshot.fetchedAtEpochMillis,
                             onLocationClick = { isCityPickerVisible = true },
                         )
                     } ?: BriefingUnavailableScreen(
@@ -2370,7 +2378,7 @@ private const val TIMELINE_RADAR_HALF_WINDOW_MILLIS = 60 * 60_000L
 private const val TIMELINE_INTENSITY_MINIMUM_AXIS_MAXIMUM_MILLIMETERS_PER_HOUR = 0.5f
 
 private data class TimelineIntensityPoint(
-    val timeEpochMillis: Long,
+    val timeEpochMillis: Long?,
     val label: String,
     val valueMillimetersPerHour: Float,
 )
@@ -2458,6 +2466,20 @@ private data class TimelineRadarState(
     val points: List<EcccRadarRainRatePoint> = emptyList(),
 )
 
+private data class TimelineThunderstormRiskState(
+    val isLoading: Boolean = false,
+    val points: List<ThunderstormRiskPoint> = emptyList(),
+)
+
+private fun timelineIntensityPointCount(
+    radarState: TimelineRadarState,
+    fallbackPoints: List<TimelineIntensityPoint>,
+): Int = if (!radarState.isLoading && radarState.points.size >= 2) {
+    radarState.points.size
+} else {
+    fallbackPoints.size
+}
+
 private val timelineChartTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 
 @Composable
@@ -2465,11 +2487,13 @@ private fun TimelineScreen(
     forecast: DashboardForecast,
     location: WeatherLocation,
     timezone: String,
+    fetchedAtEpochMillis: Long,
     unitSystem: UnitSystem,
     isRefreshing: Boolean,
     isStale: Boolean,
     errorMessage: String?,
     radarClient: EcccRadarClient,
+    thunderstormRiskClient: ThunderstormRiskClient,
     onLocationClick: () -> Unit,
 ) {
     val hourly = forecast.hourly.take(24)
@@ -2514,6 +2538,31 @@ private fun TimelineScreen(
         }.getOrDefault(emptyList())
         radarCache[centerEpochMillis] = points
         radarState = TimelineRadarState(points = points)
+    }
+
+    val thunderstormRiskCache = remember(forecast.location) {
+        mutableStateMapOf<Long, List<ThunderstormRiskPoint>>()
+    }
+    var thunderstormRiskState by remember(forecast.location) {
+        mutableStateOf(TimelineThunderstormRiskState())
+    }
+    LaunchedEffect(location, timezone, fetchedAtEpochMillis) {
+        if (thunderstormRiskCache.containsKey(fetchedAtEpochMillis)) {
+            thunderstormRiskState = TimelineThunderstormRiskState(
+                points = thunderstormRiskCache[fetchedAtEpochMillis].orEmpty(),
+            )
+            return@LaunchedEffect
+        }
+
+        thunderstormRiskState = TimelineThunderstormRiskState(isLoading = true)
+        val points = runCatching {
+            thunderstormRiskClient.fetchSeries(
+                location = location,
+                timezone = timezone,
+            )
+        }.getOrDefault(emptyList())
+        thunderstormRiskCache[fetchedAtEpochMillis] = points
+        thunderstormRiskState = TimelineThunderstormRiskState(points = points)
     }
 
     val zoneId = remember(timezone) {
@@ -2592,6 +2641,7 @@ private fun TimelineScreen(
                 TimelineHourItem(
                     hour = hour,
                     forecast = forecast,
+                    hourly = hourly,
                     unitSystem = unitSystem,
                     selected = index == selectedIndex,
                     radarState = if (index == selectedIndex) radarState else TimelineRadarState(),
@@ -2600,6 +2650,11 @@ private fun TimelineScreen(
                         selectedIndex = index,
                     ),
                     zoneId = zoneId,
+                    thunderstormRiskState = if (index == selectedIndex) {
+                        thunderstormRiskState
+                    } else {
+                        TimelineThunderstormRiskState()
+                    },
                     onClick = { selectedIndex = index },
                 )
             }
@@ -2814,13 +2869,26 @@ private fun TimelineConditionIcon(
 private fun TimelineHourItem(
     hour: HourlyForecast,
     forecast: DashboardForecast,
+    hourly: List<HourlyForecast>,
     unitSystem: UnitSystem,
     selected: Boolean,
     radarState: TimelineRadarState,
     fallbackPoints: List<TimelineIntensityPoint>,
     zoneId: ZoneId,
+    thunderstormRiskState: TimelineThunderstormRiskState,
     onClick: () -> Unit,
 ) {
+    var selectedIntensityIndex by remember(hour.timeEpochMillis) { mutableIntStateOf(-1) }
+    LaunchedEffect(radarState.points, fallbackPoints) {
+        if (selectedIntensityIndex !in -1 until timelineIntensityPointCount(
+                radarState = radarState,
+                fallbackPoints = fallbackPoints,
+            )
+        ) {
+            selectedIntensityIndex = -1
+        }
+    }
+
     Row(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -2858,7 +2926,10 @@ private fun TimelineHourItem(
                         "${hour.time} forecast, collapsed"
                     }
                 }
-                .clickable(onClick = onClick),
+                .clickable {
+                    selectedIntensityIndex = -1
+                    onClick()
+                },
             shape = RoundedCornerShape(16.dp),
             color = if (selected) Color(0xFFF3F8FE) else Color.White,
             border = BorderStroke(
@@ -2938,10 +3009,16 @@ private fun TimelineHourItem(
                     TimelineExpandedDetails(
                         hour = hour,
                         forecast = forecast,
+                        hourly = hourly,
                         unitSystem = unitSystem,
                         radarState = radarState,
                         fallbackPoints = fallbackPoints,
                         zoneId = zoneId,
+                        selectedIntensityIndex = selectedIntensityIndex,
+                        thunderstormRiskState = thunderstormRiskState,
+                        onIntensityBarClick = { index ->
+                            selectedIntensityIndex = if (selectedIntensityIndex == index) -1 else index
+                        },
                     )
                 }
             }
@@ -2980,10 +3057,14 @@ private fun TimelineMiniMetric(
 private fun TimelineExpandedDetails(
     hour: HourlyForecast,
     forecast: DashboardForecast,
+    hourly: List<HourlyForecast>,
     unitSystem: UnitSystem,
     radarState: TimelineRadarState,
     fallbackPoints: List<TimelineIntensityPoint>,
     zoneId: ZoneId,
+    selectedIntensityIndex: Int,
+    thunderstormRiskState: TimelineThunderstormRiskState,
+    onIntensityBarClick: (Int) -> Unit,
 ) {
     Column(
         modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
@@ -2994,6 +3075,11 @@ private fun TimelineExpandedDetails(
             fallbackPoints = fallbackPoints,
             zoneId = zoneId,
             unitSystem = unitSystem,
+            hour = hour,
+            hourly = hourly,
+            selectedIntensityIndex = selectedIntensityIndex,
+            thunderstormRiskState = thunderstormRiskState,
+            onIntensityBarClick = onIntensityBarClick,
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -3065,10 +3151,15 @@ private fun TimelineDetailMetric(
 
 @Composable
 private fun TimelineIntensityChart(
+    hour: HourlyForecast,
+    hourly: List<HourlyForecast>,
     radarState: TimelineRadarState,
     fallbackPoints: List<TimelineIntensityPoint>,
     zoneId: ZoneId,
     unitSystem: UnitSystem,
+    selectedIntensityIndex: Int,
+    thunderstormRiskState: TimelineThunderstormRiskState,
+    onIntensityBarClick: (Int) -> Unit,
 ) {
     val useRadar = !radarState.isLoading && radarState.points.size >= 2
     val points = if (useRadar) {
@@ -3156,6 +3247,13 @@ private fun TimelineIntensityChart(
                     useRadar = useRadar,
                     unitSystem = unitSystem,
                     scale = scale,
+                    selectedIndex = selectedIntensityIndex
+                        .takeIf { it in points.indices },
+                    selectedHour = hour,
+                    hourly = hourly,
+                    zoneId = zoneId,
+                    thunderstormRiskState = thunderstormRiskState,
+                    onBarClick = onIntensityBarClick,
                 )
             } else if (!radarState.isLoading) {
                 Text(
@@ -3174,81 +3272,200 @@ private fun TimelineIntensityBars(
     useRadar: Boolean,
     unitSystem: UnitSystem,
     scale: TimelineIntensityScale,
+    selectedIndex: Int?,
+    selectedHour: HourlyForecast,
+    hourly: List<HourlyForecast>,
+    zoneId: ZoneId,
+    thunderstormRiskState: TimelineThunderstormRiskState,
+    onBarClick: (Int) -> Unit,
 ) {
     val labelStep = if (points.size <= 5) 1 else (points.size / 4).coerceAtLeast(1)
+    val graphHeight = 60.dp
+    val tooltipLaneHeight = if (selectedIndex != null) 196.dp else 0.dp
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(60.dp),
+                .height(tooltipLaneHeight + graphHeight),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(
+            Box(
                 modifier = Modifier
                     .width(38.dp)
                     .fillMaxHeight(),
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                listOf(
-                    scale.maximumMillimetersPerHour,
-                    scale.midpointMillimetersPerHour,
-                    0f,
-                ).forEach { value ->
-                    Text(
-                        text = timelineIntensityAxisLabel(value, unitSystem),
-                        color = MutedNavy,
-                        fontSize = 7.sp,
-                        maxLines = 1,
-                    )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(graphHeight),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    listOf(
+                        scale.maximumMillimetersPerHour,
+                        scale.midpointMillimetersPerHour,
+                        0f,
+                    ).forEach { value ->
+                        Text(
+                            text = timelineIntensityAxisLabel(value, unitSystem),
+                            color = MutedNavy,
+                            fontSize = 7.sp,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.width(6.dp))
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight(),
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val lineColor = Color(0xFFDCE8F1)
-                    val top = 1.dp.toPx()
-                    val middle = size.height / 2f
-                    val bottom = size.height - 1.dp.toPx()
-                    listOf(top, middle, bottom).forEach { y ->
-                        drawLine(
-                            color = lineColor,
-                            start = Offset(0f, y),
-                            end = Offset(size.width, y),
-                            strokeWidth = 1.dp.toPx(),
-                        )
+                val graphWidth = maxWidth
+                val graph = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(graphHeight)
+                Box(modifier = graph) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val lineColor = Color(0xFFDCE8F1)
+                        val top = 1.dp.toPx()
+                        val middle = size.height / 2f
+                        val bottom = size.height - 1.dp.toPx()
+                        listOf(top, middle, bottom).forEach { y ->
+                            drawLine(
+                                color = lineColor,
+                                start = Offset(0f, y),
+                                end = Offset(size.width, y),
+                                strokeWidth = 1.dp.toPx(),
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 1.dp),
+                        horizontalArrangement = Arrangement.spacedBy(1.dp),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        points.forEachIndexed { index, point ->
+                            val value = point.valueMillimetersPerHour
+                                .takeIf { it.isFinite() }
+                                ?.coerceAtLeast(0f)
+                                ?: 0f
+                            val barHeight = if (value == 0f) {
+                                1f
+                            } else {
+                                (value / scale.maximumMillimetersPerHour * 56f)
+                                    .coerceIn(2f, 56f)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .semantics {
+                                        contentDescription = timelineIntensityBarContentDescription(
+                                            index = index,
+                                            points = points,
+                                            unitSystem = unitSystem,
+                                            zoneId = zoneId,
+                                        )
+                                    }
+                                    .clickable { onBarClick(index) },
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .height(barHeight.dp)
+                                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                        .then(
+                                            timelineIntensityBarModifier(
+                                                timelineIntensityBand(value),
+                                                useRadar,
+                                            ),
+                                        ),
+                                )
+                            }
+                        }
+                    }
+                    if (selectedIndex != null) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val index = selectedIndex.coerceIn(points.indices)
+                            val value = points[index].valueMillimetersPerHour
+                                .takeIf { it.isFinite() }
+                                ?.coerceAtLeast(0f)
+                                ?: 0f
+                            val cellWidth = size.width / points.size
+                            val centerX = cellWidth * (index + 0.5f)
+                            val barHeight = if (value == 0f) {
+                                1.dp.toPx()
+                            } else {
+                                (value / scale.maximumMillimetersPerHour * 56.dp.toPx())
+                                    .coerceIn(2.dp.toPx(), 56.dp.toPx())
+                            }
+                            val barTop = size.height - barHeight
+                            drawLine(
+                                color = AccentBlue,
+                                start = Offset(centerX, 0f),
+                                end = Offset(centerX, barTop),
+                                strokeWidth = 1.5.dp.toPx(),
+                                cap = StrokeCap.Round,
+                            )
+                            drawRoundRect(
+                                color = AccentBlue,
+                                topLeft = Offset(centerX - cellWidth / 2f + 1.dp.toPx(), barTop),
+                                size = androidx.compose.ui.geometry.Size(
+                                    width = (cellWidth - 2.dp.toPx()).coerceAtLeast(1.dp.toPx()),
+                                    height = barHeight,
+                                ),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                    3.dp.toPx(),
+                                    3.dp.toPx(),
+                                ),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = 1.5.dp.toPx(),
+                                ),
+                            )
+                            drawCircle(
+                                color = AccentBlue,
+                                radius = 4.dp.toPx(),
+                                center = Offset(centerX, barTop),
+                            )
+                            drawCircle(
+                                color = CardWhite,
+                                radius = 2.dp.toPx(),
+                                center = Offset(centerX, barTop),
+                            )
+                        }
                     }
                 }
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 1.dp),
-                    horizontalArrangement = Arrangement.spacedBy(1.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    points.forEach { point ->
-                        val value = point.valueMillimetersPerHour
-                            .takeIf { it.isFinite() }
-                            ?.coerceAtLeast(0f)
-                            ?: 0f
-                        val barHeight = if (value == 0f) {
-                            1f
-                        } else {
-                            (value / scale.maximumMillimetersPerHour * 56f)
-                                .coerceIn(2f, 56f)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(barHeight.dp)
-                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                                .then(timelineIntensityBarModifier(timelineIntensityBand(value), useRadar)),
-                        )
-                    }
+                if (selectedIndex != null) {
+                    val index = selectedIndex.coerceIn(points.indices)
+                    val tooltipWidth = graphWidth.coerceAtMost(292.dp)
+                    val cellWidth = graphWidth / points.size
+                    val centerX = cellWidth * (index + 0.5f)
+                    val maxOffset = (graphWidth - tooltipWidth).coerceAtLeast(0.dp)
+                    val tooltipOffset = (centerX - tooltipWidth / 2f)
+                        .coerceIn(0.dp, maxOffset)
+                    val tooltipAnchorOffset = (centerX - tooltipOffset)
+                        .coerceIn(10.dp, tooltipWidth - 10.dp)
+                    TimelineRainDetailsTooltip(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = tooltipOffset, y = 2.dp)
+                            .width(tooltipWidth),
+                        point = points[index],
+                        points = points,
+                        selectedIndex = index,
+                        selectedHour = selectedHour,
+                        hourly = hourly,
+                        unitSystem = unitSystem,
+                        zoneId = zoneId,
+                        thunderstormRiskState = thunderstormRiskState,
+                        anchorOffset = tooltipAnchorOffset,
+                    )
                 }
             }
         }
@@ -3275,6 +3492,291 @@ private fun TimelineIntensityBars(
         Spacer(modifier = Modifier.height(5.dp))
         TimelineIntensityLegend()
     }
+}
+
+@Composable
+private fun TimelineRainDetailsTooltip(
+    modifier: Modifier,
+    point: TimelineIntensityPoint,
+    points: List<TimelineIntensityPoint>,
+    selectedIndex: Int,
+    selectedHour: HourlyForecast,
+    hourly: List<HourlyForecast>,
+    unitSystem: UnitSystem,
+    zoneId: ZoneId,
+    thunderstormRiskState: TimelineThunderstormRiskState,
+    anchorOffset: Dp,
+) {
+    val value = point.valueMillimetersPerHour.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 0f
+    val band = timelineIntensityBand(value)
+    val precipitationRisk = timelinePrecipitationRisk(
+        point = point,
+        selectedHour = selectedHour,
+        hourly = hourly,
+    )
+    val thunderstormRisk = if (thunderstormRiskState.isLoading) {
+        null
+    } else {
+        nearestThunderstormRisk(
+            points = thunderstormRiskState.points,
+            timeEpochMillis = point.timeEpochMillis ?: selectedHour.timeEpochMillis,
+        )
+    }
+
+    Box(modifier = modifier.padding(bottom = 10.dp)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(17.dp),
+            color = CardWhite,
+            border = BorderStroke(1.dp, Color(0xFFC9E1F5)),
+            shadowElevation = 6.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Rain details",
+                        modifier = Modifier.weight(1f),
+                        color = DeepBlue,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF7FBFF),
+                        border = BorderStroke(1.dp, Color(0xFFB9DDF8)),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(timelineIntensityBandColor(band)),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = timelineIntensityBandLabel(band),
+                                color = DeepBlue,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+                TimelineRainTooltipMetric(
+                    icon = Icons.Outlined.AccessTime,
+                    iconTint = AccentBlue,
+                    label = "Time range",
+                    value = timelineIntensityRangeLabel(points, selectedIndex, zoneId),
+                    contentDescription = null,
+                    valueMaxLines = 1,
+                )
+                TimelineRainTooltipMetric(
+                    icon = Icons.Outlined.WaterDrop,
+                    iconTint = AccentBlue,
+                    label = "Rain rate",
+                    value = timelineIntensityRateLabel(value, unitSystem),
+                    contentDescription = null,
+                    valueMaxLines = 1,
+                )
+                TimelineRainTooltipMetric(
+                    icon = Icons.Outlined.Shield,
+                    iconTint = AccentBlue,
+                    label = "Precipitation risk",
+                    value = "$precipitationRisk%",
+                    contentDescription = null,
+                    valueMaxLines = 1,
+                )
+                TimelineRainTooltipMetric(
+                    icon = Icons.Outlined.Thunderstorm,
+                    iconTint = Color(0xFF7A4DE8),
+                    label = "Thunderstorm risk",
+                    value = thunderstormRiskDisplayValue(thunderstormRisk),
+                    contentDescription = thunderstormRiskContentDescription(thunderstormRisk),
+                    valueMaxLines = 2,
+                )
+            }
+        }
+        Canvas(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = (anchorOffset - 10.dp).coerceAtLeast(0.dp))
+                .size(width = 20.dp, height = 12.dp),
+        ) {
+            val path = Path().apply {
+                moveTo(size.width / 2f, size.height)
+                lineTo(0f, 0f)
+                lineTo(size.width, 0f)
+                close()
+            }
+            drawPath(path = path, color = CardWhite)
+            drawLine(
+                color = Color(0xFFC9E1F5),
+                start = Offset(0f, 0f),
+                end = Offset(size.width / 2f, size.height),
+                strokeWidth = 1.dp.toPx(),
+            )
+            drawLine(
+                color = Color(0xFFC9E1F5),
+                start = Offset(size.width, 0f),
+                end = Offset(size.width / 2f, size.height),
+                strokeWidth = 1.dp.toPx(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineRainTooltipMetric(
+    icon: ImageVector,
+    iconTint: Color,
+    label: String,
+    value: String,
+    contentDescription: String?,
+    valueMaxLines: Int,
+) {
+    Row(
+        modifier = if (contentDescription == null) {
+            Modifier.fillMaxWidth()
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .semantics { this.contentDescription = contentDescription }
+        },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(21.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            color = MutedNavy,
+            fontSize = 9.sp,
+            maxLines = 1,
+        )
+        Text(
+            text = value,
+            modifier = Modifier.widthIn(max = 170.dp),
+            color = DeepBlue,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = valueMaxLines,
+            textAlign = TextAlign.End,
+        )
+    }
+}
+
+private fun timelineIntensityBarContentDescription(
+    index: Int,
+    points: List<TimelineIntensityPoint>,
+    unitSystem: UnitSystem,
+    zoneId: ZoneId,
+): String {
+    val point = points[index]
+    val value = point.valueMillimetersPerHour.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 0f
+    return "Select precipitation bar ${index + 1}, " +
+        "${timelineIntensityRangeLabel(points, index, zoneId)}, " +
+        timelineIntensityRateLabel(value, unitSystem)
+}
+
+private fun timelineIntensityRangeLabel(
+    points: List<TimelineIntensityPoint>,
+    index: Int,
+    zoneId: ZoneId,
+): String = timelineIntensityRangeLabel(points.getOrNull(index), points, index, zoneId)
+
+private fun timelineIntensityRangeLabel(
+    point: TimelineIntensityPoint?,
+    points: List<TimelineIntensityPoint>,
+    index: Int,
+    zoneId: ZoneId,
+): String {
+    val startMillis = point?.timeEpochMillis ?: return point?.label.orEmpty()
+    val nextMillis = points.getOrNull(index + 1)?.timeEpochMillis
+    val previousMillis = points.getOrNull(index - 1)?.timeEpochMillis
+    val intervalMillis = nextMillis?.minus(startMillis)?.takeIf { it > 0L }
+        ?: previousMillis?.let { startMillis - it }?.takeIf { it > 0L }
+        ?: 60 * 60_000L
+    val endMillis = startMillis + intervalMillis
+    val startClock = DateTimeFormatter.ofPattern("h:mm", Locale.US)
+        .withZone(zoneId)
+        .format(Instant.ofEpochMilli(startMillis))
+    val endClock = timelineChartTimeFormatter
+        .withZone(zoneId)
+        .format(Instant.ofEpochMilli(endMillis))
+    val startPeriod = DateTimeFormatter.ofPattern("a", Locale.US)
+        .withZone(zoneId)
+        .format(Instant.ofEpochMilli(startMillis))
+    val endPeriod = DateTimeFormatter.ofPattern("a", Locale.US)
+        .withZone(zoneId)
+        .format(Instant.ofEpochMilli(endMillis))
+    return if (startPeriod == endPeriod) {
+        "$startClock–$endClock"
+    } else {
+        "${timelineChartTimeFormatter.withZone(zoneId).format(Instant.ofEpochMilli(startMillis))}–$endClock"
+    }
+}
+
+internal fun timelineIntensityRateLabel(
+    valueMillimetersPerHour: Float,
+    unitSystem: UnitSystem,
+): String {
+    val value = valueMillimetersPerHour.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 0f
+    return if (unitSystem == UnitSystem.METRIC) {
+        String.format(Locale.US, "%.1f mm/h", value)
+    } else {
+        String.format(Locale.US, "%.2f in/h", value / 25.4f)
+    }
+}
+
+private fun timelineIntensityBandLabel(band: TimelineIntensityBand): String = when (band) {
+    TimelineIntensityBand.NONE -> "None"
+    TimelineIntensityBand.LIGHT -> "Light"
+    TimelineIntensityBand.MODERATE -> "Moderate"
+    TimelineIntensityBand.HEAVY -> "Heavy"
+}
+
+private fun timelineIntensityBandColor(band: TimelineIntensityBand): Color = when (band) {
+    TimelineIntensityBand.NONE -> Color(0xFFD7E4ED)
+    TimelineIntensityBand.LIGHT -> Color(0xFFB9DDF5)
+    TimelineIntensityBand.MODERATE -> Color(0xFF4B9FDF)
+    TimelineIntensityBand.HEAVY -> Color(0xFF176FC1)
+}
+
+private fun timelinePrecipitationRisk(
+    point: TimelineIntensityPoint,
+    selectedHour: HourlyForecast,
+    hourly: List<HourlyForecast>,
+): Int {
+    val pointTime = point.timeEpochMillis
+    if (pointTime == null) return selectedHour.precipitationChance
+    return hourly.minByOrNull { hour ->
+        abs((hour.timeEpochMillis ?: pointTime) - pointTime)
+    }?.precipitationChance ?: selectedHour.precipitationChance
+}
+
+private fun thunderstormRiskDisplayValue(value: ThunderstormRiskValue?): String = when (value) {
+    null -> "…"
+    is ThunderstormRiskValue.Percentage -> "${value.value}%"
+    is ThunderstormRiskValue.Wording -> value.value
+    ThunderstormRiskValue.Unavailable -> "—"
+}
+
+private fun thunderstormRiskContentDescription(value: ThunderstormRiskValue?): String = when (value) {
+    null -> "Thunderstorm risk is loading"
+    is ThunderstormRiskValue.Percentage -> "Thunderstorm risk ${value.value}%"
+    is ThunderstormRiskValue.Wording -> "Thunderstorm risk: ${value.value}"
+    ThunderstormRiskValue.Unavailable -> "Thunderstorm risk unavailable"
 }
 
 private fun timelineIntensityBarModifier(
@@ -3341,9 +3843,9 @@ private fun timelineForecastIntensityPoints(
     if (hourly.isEmpty()) return emptyList()
     val start = (selectedIndex - 1).coerceAtLeast(0)
     val end = (selectedIndex + 1).coerceAtMost(hourly.lastIndex)
-    return hourly.subList(start, end + 1).mapIndexed { offset, hour ->
+    return hourly.subList(start, end + 1).map { hour ->
         TimelineIntensityPoint(
-            timeEpochMillis = hour.timeEpochMillis ?: offset.toLong(),
+            timeEpochMillis = hour.timeEpochMillis,
             label = hour.time,
             valueMillimetersPerHour = (hour.rainfallInches * 25.4).toFloat().coerceAtLeast(0f),
         )

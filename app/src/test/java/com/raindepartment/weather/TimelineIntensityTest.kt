@@ -55,4 +55,10 @@ class TimelineIntensityTest {
         assertEquals("1.0", timelineIntensityAxisLabel(25.4f, UnitSystem.IMPERIAL))
         assertTrue(timelineIntensityAxisLabel(0f, UnitSystem.METRIC) == "0")
     }
+
+    @Test
+    fun tooltipRateLabelUsesTheSelectedUnitSystem() {
+        assertEquals("0.8 mm/h", timelineIntensityRateLabel(0.8f, UnitSystem.METRIC))
+        assertEquals("0.03 in/h", timelineIntensityRateLabel(0.8f, UnitSystem.IMPERIAL))
+    }
 }
