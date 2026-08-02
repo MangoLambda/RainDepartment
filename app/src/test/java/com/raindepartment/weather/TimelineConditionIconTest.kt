@@ -9,6 +9,10 @@ class TimelineConditionIconTest {
     fun drizzleAndShowersUseDifferentDropCounts() {
         assertEquals(1, timelineRainDropCount(WeatherCondition.DRIZZLE))
         assertEquals(3, timelineRainDropCount(WeatherCondition.RAIN))
+
+        val showerPlacements = timelineRainDropPlacements(WeatherCondition.RAIN)
+        assertEquals(3, showerPlacements.map { it.xFraction }.distinct().size)
+        assertEquals(3, showerPlacements.map { it.yFraction }.distinct().size)
     }
 
     @Test

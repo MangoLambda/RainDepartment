@@ -2996,7 +2996,9 @@ private fun TimelineRainIcon(
     condition: WeatherCondition,
     modifier: Modifier,
 ) {
-    val dropCount = timelineRainDropCount(condition) ?: return
+    val dropPlacements = timelineRainDropPlacements(condition)
+    if (dropPlacements.isEmpty()) return
+    val dropCount = dropPlacements.size
 
     BoxWithConstraints(modifier) {
         val dropSize = when {
@@ -3012,42 +3014,48 @@ private fun TimelineRainIcon(
             tint = AccentBlue,
             modifier = Modifier.fillMaxSize(),
         )
-        if (dropCount == 1) {
+        dropPlacements.forEach { placement ->
             Icon(
                 imageVector = Icons.Outlined.WaterDrop,
                 contentDescription = null,
                 tint = AccentBlue,
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.TopStart)
                     .size(dropSize)
-                    .offset(x = (-2).dp, y = 2.dp),
+                    .offset(
+                        x = maxWidth * placement.xFraction - dropSize / 2,
+                        y = maxHeight * placement.yFraction - dropSize / 2,
+                    ),
             )
-        } else {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 0.dp),
-                horizontalArrangement = Arrangement.spacedBy(0.dp),
-            ) {
-                repeat(dropCount) {
-                    Icon(
-                        imageVector = Icons.Outlined.WaterDrop,
-                        contentDescription = null,
-                        tint = AccentBlue,
-                        modifier = Modifier.size(dropSize),
-                    )
-                }
-            }
         }
     }
 }
 
-internal fun timelineRainDropCount(condition: WeatherCondition): Int? = when (condition) {
-    WeatherCondition.DRIZZLE -> 1
-    WeatherCondition.RAIN -> 3
-    WeatherCondition.HEAVY_RAIN -> 4
-    else -> null
+internal data class TimelineRainDropPlacement(
+    val xFraction: Float,
+    val yFraction: Float,
+)
+
+internal fun timelineRainDropPlacements(condition: WeatherCondition): List<TimelineRainDropPlacement> = when (condition) {
+    WeatherCondition.DRIZZLE -> listOf(
+        TimelineRainDropPlacement(xFraction = 0.72f, yFraction = 0.78f),
+    )
+    WeatherCondition.RAIN -> listOf(
+        TimelineRainDropPlacement(xFraction = 0.29f, yFraction = 0.74f),
+        TimelineRainDropPlacement(xFraction = 0.51f, yFraction = 0.86f),
+        TimelineRainDropPlacement(xFraction = 0.73f, yFraction = 0.71f),
+    )
+    WeatherCondition.HEAVY_RAIN -> listOf(
+        TimelineRainDropPlacement(xFraction = 0.22f, yFraction = 0.75f),
+        TimelineRainDropPlacement(xFraction = 0.42f, yFraction = 0.89f),
+        TimelineRainDropPlacement(xFraction = 0.62f, yFraction = 0.70f),
+        TimelineRainDropPlacement(xFraction = 0.82f, yFraction = 0.83f),
+    )
+    else -> emptyList()
 }
+
+internal fun timelineRainDropCount(condition: WeatherCondition): Int? =
+    timelineRainDropPlacements(condition).size.takeIf { it > 0 }
 
 @Composable
 private fun TimelineConditionIcon(
