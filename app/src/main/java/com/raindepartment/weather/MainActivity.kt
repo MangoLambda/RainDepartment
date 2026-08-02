@@ -2581,7 +2581,7 @@ private fun HourlyForecastCard(
     hourly: List<HourlyForecast>,
     unitSystem: UnitSystem,
     title: String = "Hourly Precipitation, Temperature & Wind",
-    action: String = "Next 10 Hours",
+    action: String = "Next 24 Hours",
 ) {
     DashboardCard(modifier = Modifier.fillMaxWidth()) {
         SectionHeader(title = title, action = action)

@@ -180,7 +180,7 @@ internal object GemWeatherParser {
         )
         val peakWindTime = formatHour(hourlyTimes.getOrNull(peakIndex) ?: currentTime)
 
-        val visibleIndices = (currentIndex until hourlyLength).take(10)
+        val visibleIndices = (currentIndex until hourlyLength).take(24)
         val chartIndices = (currentIndex until hourlyLength).take(24)
         val hourlyForecast = visibleIndices.mapIndexed { visibleIndex, index ->
             hourlyForecast(index, time = if (visibleIndex == 0) "Now" else formatHour(hourlyTimes[index]))
