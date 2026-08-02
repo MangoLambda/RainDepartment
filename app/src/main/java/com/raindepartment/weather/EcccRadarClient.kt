@@ -627,7 +627,9 @@ private const val ECCC_RADAR_MAP_STYLE = "RADARURPPRECIPR14-LINEAR"
 internal const val RADAR_MAP_LATITUDE_SPAN = 2.1
 private const val RADAR_MAP_REQUEST_WIDTH = 720
 private const val RADAR_MAP_REQUEST_HEIGHT = 1_120
-internal const val RADAR_MIN_ZOOM = 0.2f
+// The default view is local; this lower bound expands the map to roughly
+// continent scale when the user zooms all the way out.
+internal const val RADAR_MIN_ZOOM = 0.04f
 internal const val RADAR_MAX_ZOOM = 6f
 internal const val RADAR_CACHE_FRESHNESS_MILLIS = 6 * 60_000L
 

@@ -106,6 +106,17 @@ class EcccRadarClientTest {
     }
 
     @Test
+    fun minimumZoomReachesContinentScale() {
+        val continentViewport = EcccRadarMapViewport.centeredOn(
+            location = AustinLocation,
+            zoom = RADAR_MIN_ZOOM,
+        )
+
+        assertTrue(continentViewport.latitudeSpan > 50.0)
+        assertTrue(continentViewport.longitudeSpan > 35.0)
+    }
+
+    @Test
     fun latestFrameDoesNotRunPastTheAvailableWindow() {
         val window = EcccRadarTimeWindow(
             startEpochMillis = 1_000L,

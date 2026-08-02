@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -92,6 +93,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -134,6 +136,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1233,7 +1236,7 @@ private fun DashboardTab.icon(): ImageVector = when (this) {
 
 private const val RADAR_SCREEN_REFRESH_INTERVAL_MILLIS = 6 * 60_000L
 private const val RADAR_VIEWPORT_REQUEST_DEBOUNCE_MILLIS = 350L
-internal const val RADAR_MIN_GESTURE_SCALE = 0.02f
+internal const val RADAR_MIN_GESTURE_SCALE = 0.005f
 internal const val RADAR_MAX_GESTURE_SCALE = 50f
 
 private data class RadarUiState(
@@ -2119,6 +2122,7 @@ private fun RadarMapLegend(modifier: Modifier) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RadarTimelineControls(
     modifier: Modifier,
@@ -2132,6 +2136,24 @@ private fun RadarTimelineControls(
 ) {
     val hasFrames = frameTimes.isNotEmpty()
     val safeIndex = currentFrameIndex.coerceIn(0, (frameTimes.size - 1).coerceAtLeast(0))
+    val sliderMax = frameTimes.lastIndex.coerceAtLeast(0).toFloat()
+    var sliderValue by remember(frameTimes) { mutableStateOf(safeIndex.toFloat()) }
+
+    LaunchedEffect(frameTimes, safeIndex) {
+        sliderValue = safeIndex.toFloat()
+    }
+
+    val selectedIndex = sliderValue.roundToInt().coerceIn(0, frameTimes.lastIndex.coerceAtLeast(0))
+    val selectedTime = frameTimes.getOrNull(selectedIndex)?.let(::formatRadarFrameTime) ?: "—"
+    val firstTime = frameTimes.firstOrNull()?.let(::formatRadarFrameTime) ?: "—"
+    val sliderInteractionSource = remember { MutableInteractionSource() }
+    val sliderColors = SliderDefaults.colors(
+        thumbColor = AccentBlue,
+        activeTrackColor = AccentBlue,
+        inactiveTrackColor = Color(0xFFD8EAF6),
+        activeTickColor = Color.White,
+        inactiveTickColor = Color(0xFF91B9D6),
+    )
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -2173,14 +2195,31 @@ private fun RadarTimelineControls(
                     )
                 }
                 Slider(
-                    value = safeIndex.toFloat(),
+                    value = sliderValue.coerceIn(0f, sliderMax),
                     onValueChange = { value ->
-                        frameTimes.getOrNull(value.roundToInt())?.let(onSelectFrame)
+                        sliderValue = value
                     },
-                    valueRange = 0f..(frameTimes.lastIndex.coerceAtLeast(0)).toFloat(),
+                    onValueChangeFinished = {
+                        frameTimes.getOrNull(sliderValue.roundToInt())?.let(onSelectFrame)
+                    },
+                    valueRange = 0f..sliderMax,
                     steps = (frameTimes.size - 2).coerceAtLeast(0),
                     enabled = hasFrames && !isLoading,
-                    modifier = Modifier.weight(1f),
+                    colors = sliderColors,
+                    interactionSource = sliderInteractionSource,
+                    thumb = { _ ->
+                        SliderDefaults.Thumb(
+                            interactionSource = sliderInteractionSource,
+                            colors = sliderColors,
+                            thumbSize = DpSize(20.dp, 20.dp),
+                        )
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .semantics {
+                            contentDescription = "Radar timeline slider"
+                        },
                 )
                 IconButton(
                     onClick = {
@@ -2201,28 +2240,23 @@ private fun RadarTimelineControls(
                 }
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 117.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Spacer(modifier = Modifier.width(96.dp))
                 Text(
-                    text = frameTimes.firstOrNull()?.let(::formatRadarFrameTime) ?: "—",
+                    text = firstTime,
                     color = MutedNavy,
                     fontSize = 11.sp,
                 )
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = frameTimes.getOrNull(safeIndex)?.let(::formatRadarFrameTime) ?: "—",
-                        color = if (safeIndex == frameTimes.lastIndex) AccentBlue else MutedNavy,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    if (safeIndex == frameTimes.lastIndex) {
-                        Text("Now", color = AccentBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
+                Text(
+                    text = if (selectedIndex == frameTimes.lastIndex) "$selectedTime · Now" else selectedTime,
+                    color = AccentBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.width(48.dp))
             }
         }
     }

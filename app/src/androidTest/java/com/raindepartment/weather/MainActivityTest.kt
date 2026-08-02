@@ -165,6 +165,7 @@ class MainActivityTest {
         composeRule.onNodeWithContentDescription("Zoom in on radar map").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Zoom out on radar map").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Reset radar map view").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Radar timeline slider").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Radar data updates every 6 minutes")
             .assertIsDisplayed()
     }
