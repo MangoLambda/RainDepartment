@@ -11,6 +11,7 @@ import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -27,14 +28,60 @@ internal data class EcccRadarRainStart(
     val confidenceMeaningful: Boolean,
 )
 
+internal data class EcccRadarMapViewport(
+    val centerLatitude: Double,
+    val centerLongitude: Double,
+    val latitudeSpan: Double,
+    val width: Int = RADAR_MAP_REQUEST_WIDTH,
+    val height: Int = RADAR_MAP_REQUEST_HEIGHT,
+) {
+    val longitudeSpan: Double
+        get() = latitudeSpan * width.toDouble() / height.toDouble() /
+            max(cos(Math.toRadians(centerLatitude)), 0.2)
+
+    fun cacheKey(): String = String.format(
+        Locale.US,
+        "%.6f,%.6f,%.6f,%d,%d",
+        centerLatitude,
+        centerLongitude,
+        latitudeSpan,
+        width,
+        height,
+    )
+
+    companion object {
+        fun centeredOn(
+            location: WeatherLocation,
+            zoom: Float = 1f,
+            width: Int = RADAR_MAP_REQUEST_WIDTH,
+            height: Int = RADAR_MAP_REQUEST_HEIGHT,
+        ): EcccRadarMapViewport = EcccRadarMapViewport(
+            centerLatitude = location.latitude,
+            centerLongitude = location.longitude,
+            latitudeSpan = (RADAR_MAP_LATITUDE_SPAN / zoom)
+                .coerceIn(
+                    RADAR_MAP_LATITUDE_SPAN / RADAR_MAX_ZOOM,
+                    RADAR_MAP_LATITUDE_SPAN / RADAR_MIN_ZOOM,
+                ),
+            width = width,
+            height = height,
+        )
+    }
+}
+
 internal data class EcccRadarMapFrame(
     val timeEpochMillis: Long,
     val imageBytes: ByteArray,
+    val viewport: EcccRadarMapViewport? = null,
+    val isFromCache: Boolean = false,
+    val isStale: Boolean = false,
 )
 
 internal data class EcccRadarMapData(
     val window: EcccRadarTimeWindow,
     val frame: EcccRadarMapFrame,
+    val viewport: EcccRadarMapViewport? = frame.viewport,
+    val isFromCache: Boolean = frame.isFromCache,
 )
 
 internal interface EcccRadarClient {
@@ -50,10 +97,34 @@ internal interface EcccRadarMapClient {
         nowEpochMillis: Long,
     ): EcccRadarMapData?
 
+    suspend fun fetchLatest(
+        location: WeatherLocation,
+        nowEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
+    ): EcccRadarMapData? = fetchLatest(location, nowEpochMillis)
+
     suspend fun fetchFrame(
         location: WeatherLocation,
         timeEpochMillis: Long,
     ): EcccRadarMapFrame?
+
+    suspend fun fetchFrame(
+        location: WeatherLocation,
+        timeEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
+    ): EcccRadarMapFrame? = fetchFrame(location, timeEpochMillis)
+
+    suspend fun readCachedLatest(
+        location: WeatherLocation,
+        nowEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
+    ): EcccRadarMapData? = null
+
+    suspend fun readCachedFrame(
+        location: WeatherLocation,
+        timeEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
+    ): EcccRadarMapFrame? = null
 }
 
 internal object NoOpEcccRadarClient : EcccRadarClient {
@@ -82,6 +153,7 @@ internal class EcccRadarHttpException(
 internal class EcccRadarDataException(message: String) : IOException(message)
 
 internal class HttpEcccRadarClient(
+    private val cache: EcccRadarMapCache? = null,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : EcccRadarClient, EcccRadarMapClient {
     override suspend fun findRainStart(
@@ -133,30 +205,91 @@ internal class HttpEcccRadarClient(
     override suspend fun fetchLatest(
         location: WeatherLocation,
         nowEpochMillis: Long,
+    ): EcccRadarMapData? = fetchLatest(
+        location = location,
+        nowEpochMillis = nowEpochMillis,
+        viewport = EcccRadarMapViewport.centeredOn(location),
+    )
+
+    override suspend fun fetchLatest(
+        location: WeatherLocation,
+        nowEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
     ): EcccRadarMapData? = withContext(Dispatchers.IO) {
         val window = fetchTimeWindow(ECCC_RADAR_MAP_LAYER)
         val latestTime = latestEcccRadarFrameTime(window, nowEpochMillis)
+        val frame = fetchMapFrame(location, latestTime, viewport)
         EcccRadarMapData(
             window = window,
-            frame = fetchMapFrame(location, latestTime),
+            frame = frame,
+            viewport = viewport,
+            isFromCache = frame.isFromCache,
         )
     }
 
     override suspend fun fetchFrame(
         location: WeatherLocation,
         timeEpochMillis: Long,
+    ): EcccRadarMapFrame? = fetchFrame(
+        location = location,
+        timeEpochMillis = timeEpochMillis,
+        viewport = EcccRadarMapViewport.centeredOn(location),
+    )
+
+    override suspend fun fetchFrame(
+        location: WeatherLocation,
+        timeEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
     ): EcccRadarMapFrame? = withContext(Dispatchers.IO) {
-        fetchMapFrame(location, timeEpochMillis)
+        fetchMapFrame(location, timeEpochMillis, viewport)
+    }
+
+    override suspend fun readCachedLatest(
+        location: WeatherLocation,
+        nowEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
+    ): EcccRadarMapData? = withContext(Dispatchers.IO) {
+        val cachedWindow = cache?.readTimeWindow(ECCC_RADAR_MAP_LAYER) ?: return@withContext null
+        val latestTime = latestEcccRadarFrameTime(cachedWindow.window, nowEpochMillis)
+        val frame = readCachedMapFrame(location, latestTime, viewport) ?: return@withContext null
+        EcccRadarMapData(
+            window = cachedWindow.window,
+            frame = frame,
+            viewport = viewport,
+            isFromCache = true,
+        )
+    }
+
+    override suspend fun readCachedFrame(
+        location: WeatherLocation,
+        timeEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
+    ): EcccRadarMapFrame? = withContext(Dispatchers.IO) {
+        readCachedMapFrame(location, timeEpochMillis, viewport)
     }
 
     private fun fetchTimeWindow(layer: String = ECCC_RADAR_LAYER): EcccRadarTimeWindow {
-        val body = fetchText(
-            ecccRadarCapabilitiesUrl(
-                cacheBust = clock(),
-                layer = layer,
-            ),
-        )
-        return parseEcccRadarTimeWindow(body)
+        val cached = cache?.readTimeWindow(layer)
+        if (cached != null && clock() - cached.cachedAtEpochMillis < RADAR_CACHE_FRESHNESS_MILLIS) {
+            return cached.window
+        }
+
+        try {
+            val body = fetchText(
+                ecccRadarCapabilitiesUrl(
+                    cacheBust = clock(),
+                    layer = layer,
+                ),
+            )
+            val window = parseEcccRadarTimeWindow(body)
+            cache?.writeTimeWindow(layer, window, clock())
+            return window
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            cached?.window?.let { return it }
+            throw error
+        }
     }
 
     private fun fetchRainRate(location: WeatherLocation, timeEpochMillis: Long): Double? {
@@ -167,21 +300,47 @@ internal class HttpEcccRadarClient(
     private fun fetchMapFrame(
         location: WeatherLocation,
         timeEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
     ): EcccRadarMapFrame {
+        readCachedMapFrame(location, timeEpochMillis, viewport)?.let { return it }
+
         val imageBytes = fetchBytes(
             ecccRadarMapUrl(
                 location = location,
                 timeEpochMillis = timeEpochMillis,
+                viewport = viewport,
             ),
         )
         if (!imageBytes.isPng()) {
             throw EcccRadarDataException("ECCC radar did not return a map image.")
         }
-        return EcccRadarMapFrame(
+        val frame = EcccRadarMapFrame(
             timeEpochMillis = timeEpochMillis,
             imageBytes = imageBytes,
+            viewport = viewport,
         )
+        cache?.writeFrame(
+            key = ecccRadarFrameCacheKey(location, timeEpochMillis, viewport),
+            frame = frame,
+            cachedAtEpochMillis = clock(),
+        )
+        return frame
     }
+
+    private fun readCachedMapFrame(
+        location: WeatherLocation,
+        timeEpochMillis: Long,
+        viewport: EcccRadarMapViewport,
+    ): EcccRadarMapFrame? = cache
+        ?.readFrame(ecccRadarFrameCacheKey(location, timeEpochMillis, viewport))
+        ?.let { cached ->
+            cached.frame.copy(
+                timeEpochMillis = timeEpochMillis,
+                viewport = viewport,
+                isFromCache = true,
+                isStale = cached.cachedAtEpochMillis + RADAR_CACHE_FRESHNESS_MILLIS <= clock(),
+            )
+        }
 
     private fun fetchText(url: String): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -261,14 +420,32 @@ internal fun ecccRadarMapUrl(
     timeEpochMillis: Long,
     width: Int = RADAR_MAP_REQUEST_WIDTH,
     height: Int = RADAR_MAP_REQUEST_HEIGHT,
+): String = ecccRadarMapUrl(
+    location = location,
+    timeEpochMillis = timeEpochMillis,
+    viewport = EcccRadarMapViewport.centeredOn(
+        location = location,
+        width = width,
+        height = height,
+    ),
+)
+
+internal fun ecccRadarMapUrl(
+    location: WeatherLocation,
+    timeEpochMillis: Long,
+    viewport: EcccRadarMapViewport,
 ): String {
-    val latitudeSpan = RADAR_MAP_LATITUDE_SPAN
-    val longitudeSpan = latitudeSpan * width.toDouble() / height.toDouble() /
-        max(cos(Math.toRadians(location.latitude)), 0.2)
-    val minLatitude = (location.latitude - latitudeSpan / 2.0).coerceAtLeast(-90.0)
-    val maxLatitude = (location.latitude + latitudeSpan / 2.0).coerceAtMost(90.0)
-    val minLongitude = location.longitude - longitudeSpan / 2.0
-    val maxLongitude = location.longitude + longitudeSpan / 2.0
+    val latitudeSpan = viewport.latitudeSpan
+    val longitudeSpan = viewport.longitudeSpan
+    val halfLatitudeSpan = latitudeSpan / 2.0
+    val centerLatitude = viewport.centerLatitude.coerceIn(
+        -90.0 + halfLatitudeSpan,
+        90.0 - halfLatitudeSpan,
+    )
+    val minLatitude = centerLatitude - halfLatitudeSpan
+    val maxLatitude = centerLatitude + halfLatitudeSpan
+    val minLongitude = viewport.centerLongitude - longitudeSpan / 2.0
+    val maxLongitude = viewport.centerLongitude + longitudeSpan / 2.0
     val bbox = String.format(
         Locale.US,
         "%.6f,%.6f,%.6f,%.6f",
@@ -291,8 +468,8 @@ internal fun ecccRadarMapUrl(
             "styles" to ECCC_RADAR_MAP_STYLE,
             "crs" to "EPSG:4326",
             "bbox" to bbox,
-            "width" to width.toString(),
-            "height" to height.toString(),
+            "width" to viewport.width.toString(),
+            "height" to viewport.height.toString(),
             "format" to "image/png",
             "transparent" to "true",
             "time" to time,
@@ -393,9 +570,27 @@ private const val ECCC_RADAR_ENDPOINT = "https://geo.weather.gc.ca/geomet"
 private const val ECCC_RADAR_LAYER = "Radar_1km_RainPrecipRate-Extrapolation"
 private const val ECCC_RADAR_MAP_LAYER = "RADAR_1KM_RRAI"
 private const val ECCC_RADAR_MAP_STYLE = "RADARURPPRECIPR14-LINEAR"
-private const val RADAR_MAP_LATITUDE_SPAN = 2.1
+internal const val RADAR_MAP_LATITUDE_SPAN = 2.1
 private const val RADAR_MAP_REQUEST_WIDTH = 720
 private const val RADAR_MAP_REQUEST_HEIGHT = 1_120
+internal const val RADAR_MIN_ZOOM = 0.2f
+internal const val RADAR_MAX_ZOOM = 6f
+internal const val RADAR_CACHE_FRESHNESS_MILLIS = 6 * 60_000L
+
+internal fun ecccRadarFrameCacheKey(
+    location: WeatherLocation,
+    timeEpochMillis: Long,
+    viewport: EcccRadarMapViewport,
+): String = String.format(
+    Locale.US,
+    "%s|%s|%.6f|%.6f|%d|%s",
+    ECCC_RADAR_MAP_LAYER,
+    ECCC_RADAR_MAP_STYLE,
+    location.latitude,
+    location.longitude,
+    timeEpochMillis,
+    viewport.cacheKey(),
+)
 
 private fun StringBuilder.appendQueryParameter(name: String, value: String) {
     append(name)

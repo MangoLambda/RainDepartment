@@ -21,6 +21,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -97,6 +99,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -109,7 +112,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -135,6 +140,8 @@ import com.raindepartment.weather.update.UpdateUiState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import java.util.Locale
 import java.time.Instant
@@ -180,7 +187,9 @@ internal fun RainDepartmentApp(
         WeatherRepositoryFactory.create(context.applicationContext)
     }
     val radarMapClient = radarClient ?: remember(context) {
-        HttpEcccRadarClient()
+        HttpEcccRadarClient(
+            cache = FileEcccRadarMapCache(context.applicationContext),
+        )
     }
     val weatherState by weatherRepository.state.collectAsStateWithLifecycle()
     val weatherScope = rememberCoroutineScope()
@@ -1168,6 +1177,7 @@ private fun DashboardTab.icon(): ImageVector = when (this) {
 }
 
 private const val RADAR_SCREEN_REFRESH_INTERVAL_MILLIS = 6 * 60_000L
+private const val RADAR_VIEWPORT_REQUEST_DEBOUNCE_MILLIS = 250L
 
 private data class RadarUiState(
     val window: EcccRadarTimeWindow? = null,
@@ -1185,8 +1195,11 @@ private fun RadarScreen(
     var state by remember(location) { mutableStateOf(RadarUiState()) }
     var selectedFrameTime by remember(location) { mutableStateOf<Long?>(null) }
     var isPlaying by remember(location) { mutableStateOf(false) }
+    var activeViewport by remember(location) { mutableStateOf<EcccRadarMapViewport?>(null) }
+    var requestSerial by remember(location) { mutableIntStateOf(0) }
     val radarScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val defaultViewport = location?.let(EcccRadarMapViewport::centeredOn)
 
     LaunchedEffect(location, radarClient, lifecycleOwner) {
         if (location == null) {
@@ -1194,12 +1207,31 @@ private fun RadarScreen(
             return@LaunchedEffect
         }
 
+        val cached = runCatching {
+            radarClient.readCachedLatest(
+                location = location,
+                nowEpochMillis = System.currentTimeMillis(),
+                viewport = defaultViewport!!,
+            )
+        }.getOrNull()
+        if (cached != null) {
+            activeViewport = cached.viewport ?: defaultViewport
+            state = RadarUiState(
+                window = cached.window,
+                frame = cached.frame,
+                isLoading = false,
+                errorMessage = null,
+            )
+        }
+
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (isActive) {
+                val viewport = activeViewport ?: defaultViewport!!
                 val result = runCatching {
                     radarClient.fetchLatest(
                         location = location,
                         nowEpochMillis = System.currentTimeMillis(),
+                        viewport = viewport,
                     )
                 }
                 val data = result.getOrNull()
@@ -1215,6 +1247,7 @@ private fun RadarScreen(
                         )
                     } else {
                         selectedFrameTime = null
+                        activeViewport = data.viewport ?: viewport
                         RadarUiState(
                             window = data.window,
                             frame = data.frame,
@@ -1234,18 +1267,22 @@ private fun RadarScreen(
         }
     }
 
-    val requestFrame: (Long) -> Unit = { timeEpochMillis ->
+    val requestFrame: (Long, EcccRadarMapViewport) -> Unit = { timeEpochMillis, viewport ->
         val currentLocation = location
         if (currentLocation != null) {
             selectedFrameTime = timeEpochMillis
+            activeViewport = viewport
+            val requestId = ++requestSerial
             radarScope.launch {
                 state = state.copy(isLoading = true, errorMessage = null)
                 val result = runCatching {
                     radarClient.fetchFrame(
                         location = currentLocation,
                         timeEpochMillis = timeEpochMillis,
+                        viewport = viewport,
                     )
                 }
+                if (requestSerial != requestId) return@launch
                 val frame = result.getOrNull()
                 state = if (frame != null) {
                     state.copy(
@@ -1264,20 +1301,25 @@ private fun RadarScreen(
         }
     }
 
-    val requestLatest: () -> Unit = {
+    val requestLatest: (EcccRadarMapViewport) -> Unit = { viewport ->
         val currentLocation = location
         if (currentLocation != null) {
             selectedFrameTime = null
+            activeViewport = viewport
+            val requestId = ++requestSerial
             radarScope.launch {
                 state = state.copy(isLoading = true, errorMessage = null)
                 val result = runCatching {
                     radarClient.fetchLatest(
                         location = currentLocation,
                         nowEpochMillis = System.currentTimeMillis(),
+                        viewport = viewport,
                     )
                 }
+                if (requestSerial != requestId) return@launch
                 val data = result.getOrNull()
                 state = if (data != null) {
+                    activeViewport = data.viewport ?: viewport
                     RadarUiState(
                         window = data.window,
                         frame = data.frame,
@@ -1292,6 +1334,14 @@ private fun RadarScreen(
                     )
                 }
             }
+        }
+    }
+
+    val requestViewport: (EcccRadarMapViewport) -> Unit = { viewport ->
+        if (selectedFrameTime == null) {
+            requestLatest(viewport)
+        } else {
+            requestFrame(selectedFrameTime!!, viewport)
         }
     }
 
@@ -1323,7 +1373,7 @@ private fun RadarScreen(
             isLoading = state.isLoading,
             errorMessage = state.errorMessage,
             isPlaying = isPlaying,
-            onTogglePlayback = {
+            onTogglePlayback = { viewport ->
                 isPlaying = !isPlaying
                 if (!isPlaying) return@RadarMapCard
                 val nextIndex = if (currentFrameIndex >= frameTimes.lastIndex) {
@@ -1331,11 +1381,12 @@ private fun RadarScreen(
                 } else {
                     currentFrameIndex + 1
                 }
-                frameTimes.getOrNull(nextIndex)?.let(requestFrame)
+                frameTimes.getOrNull(nextIndex)?.let { requestFrame(it, viewport) }
                 isPlaying = false
             },
             onSelectFrame = requestFrame,
             onSelectLatest = requestLatest,
+            onViewportChanged = requestViewport,
         )
     }
 
@@ -1352,15 +1403,45 @@ private fun RadarMapCard(
     isLoading: Boolean,
     errorMessage: String?,
     isPlaying: Boolean,
-    onTogglePlayback: () -> Unit,
-    onSelectFrame: (Long) -> Unit,
-    onSelectLatest: () -> Unit,
+    onTogglePlayback: (EcccRadarMapViewport) -> Unit,
+    onSelectFrame: (Long, EcccRadarMapViewport) -> Unit,
+    onSelectLatest: (EcccRadarMapViewport) -> Unit,
+    onViewportChanged: (EcccRadarMapViewport) -> Unit,
 ) {
-    val bitmap = remember(frame?.imageBytes) {
-        frame?.imageBytes?.let { bytes ->
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+    val sourceViewport = frame?.viewport ?: EcccRadarMapViewport.centeredOn(location)
+    val sourceViewportKey = sourceViewport.cacheKey()
+    var bitmap by remember(frame?.timeEpochMillis, sourceViewportKey) {
+        mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    }
+    LaunchedEffect(frame?.timeEpochMillis, sourceViewportKey) {
+        val bytes = frame?.imageBytes
+        bitmap = withContext(Dispatchers.Default) {
+            bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
         }
     }
+    var mapScale by remember(location, sourceViewportKey) { mutableStateOf(1f) }
+    var mapTranslation by remember(location, sourceViewportKey) { mutableStateOf(Offset.Zero) }
+    var gestureRevision by remember(location, sourceViewportKey) { mutableIntStateOf(0) }
+    val currentSourceViewport by rememberUpdatedState(sourceViewport)
+    val currentOnViewportChanged by rememberUpdatedState(onViewportChanged)
+
+    LaunchedEffect(gestureRevision) {
+        if (gestureRevision == 0) return@LaunchedEffect
+        delay(RADAR_VIEWPORT_REQUEST_DEBOUNCE_MILLIS)
+        currentOnViewportChanged(
+            radarViewportForTransform(
+                sourceViewport = currentSourceViewport,
+                scale = mapScale,
+                translation = mapTranslation,
+            ),
+        )
+    }
+
+    val currentViewport = radarViewportForTransform(
+        sourceViewport = sourceViewport,
+        scale = mapScale,
+        translation = mapTranslation,
+    )
     val nowEpochMillis = System.currentTimeMillis()
     val arrival = forecast?.let { radarArrivalText(it, nowEpochMillis) }
     val confidence = forecast?.let { radarConfidenceText(it) }
@@ -1370,17 +1451,59 @@ private fun RadarMapCard(
             .clip(RoundedCornerShape(24.dp))
             .background(Color(0xFFE7F0E5)),
     ) {
-        RadarBaseMap(modifier = Modifier.fillMaxSize())
-        bitmap?.let { image ->
-            Image(
-                bitmap = image,
-                contentDescription = "ECCC 1 kilometre radar image",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.FillBounds,
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics {
+                    contentDescription =
+                        "Interactive north-up radar map. Drag to pan and pinch to zoom."
+                }
+                .pointerInput(location, sourceViewportKey) {
+                    detectTransformGestures { centroid, pan, zoomChange, _ ->
+                        val previousScale = mapScale
+                        val nextScale = (previousScale * zoomChange)
+                            .coerceIn(RADAR_MIN_ZOOM, RADAR_MAX_ZOOM)
+                        val scaleChange = nextScale / previousScale
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val candidateTranslation = centroid + pan +
+                            (center + mapTranslation - centroid) * scaleChange - center
+                        val nextTranslation = clampRadarMapTranslation(
+                            translation = candidateTranslation,
+                            scale = nextScale,
+                            width = size.width.toFloat(),
+                            height = size.height.toFloat(),
+                        )
+                        if (nextScale != previousScale || nextTranslation != mapTranslation) {
+                            mapScale = nextScale
+                            mapTranslation = nextTranslation
+                            gestureRevision += 1
+                        }
+                    }
+                },
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = mapScale
+                        scaleY = mapScale
+                        translationX = mapTranslation.x
+                        translationY = mapTranslation.y
+                    },
+            ) {
+                RadarBaseMap(modifier = Modifier.fillMaxSize())
+                bitmap?.let { image ->
+                    Image(
+                        bitmap = image,
+                        contentDescription = "ECCC 1 kilometre radar image",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds,
+                    )
+                }
+                RadarMapLabels(location = location)
+                RadarLocationMarker(location = location, viewport = sourceViewport)
+            }
         }
-        RadarMapLabels(location = location)
-        RadarLocationMarker()
 
         Surface(
             modifier = Modifier
@@ -1423,7 +1546,7 @@ private fun RadarMapCard(
             shadowElevation = 3.dp,
         ) {
             IconButton(
-                onClick = onSelectLatest,
+                onClick = { onSelectLatest(currentViewport) },
                 modifier = Modifier.semantics {
                     contentDescription = "Radar layers and latest frame"
                 },
@@ -1510,29 +1633,8 @@ private fun RadarMapCard(
         RadarMapLegend(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 14.dp, bottom = 124.dp),
+                .padding(start = 14.dp, end = 14.dp, bottom = 126.dp),
         )
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 14.dp, bottom = 126.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            Text(
-                text = "Radar updates\nevery 6 min",
-                color = DeepBlue,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.End,
-            )
-            Icon(
-                imageVector = Icons.Outlined.Info,
-                contentDescription = "Radar data updates every 6 minutes",
-                tint = DeepBlue,
-                modifier = Modifier.size(20.dp),
-            )
-        }
 
         RadarTimelineControls(
             modifier = Modifier
@@ -1542,9 +1644,9 @@ private fun RadarMapCard(
             currentFrameIndex = frameIndex,
             isPlaying = isPlaying,
             isLoading = isLoading,
-            onTogglePlayback = onTogglePlayback,
-            onSelectFrame = onSelectFrame,
-            onSelectLatest = onSelectLatest,
+            onTogglePlayback = { onTogglePlayback(currentViewport) },
+            onSelectFrame = { time -> onSelectFrame(time, currentViewport) },
+            onSelectLatest = { onSelectLatest(currentViewport) },
         )
     }
 }
@@ -1699,13 +1801,23 @@ private fun RadarMapLabels(location: WeatherLocation) {
 }
 
 @Composable
-private fun RadarLocationMarker() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
+private fun RadarLocationMarker(
+    location: WeatherLocation,
+    viewport: EcccRadarMapViewport,
+) {
+    val point = radarMapPoint(
+        latitude = location.latitude,
+        longitude = location.longitude,
+        viewport = viewport,
+    )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         Surface(
-            modifier = Modifier.size(30.dp),
+            modifier = Modifier
+                .offset(
+                    x = maxWidth * point.x - 15.dp,
+                    y = maxHeight * point.y - 15.dp,
+                )
+                .size(30.dp),
             shape = CircleShape,
             color = Color.White,
             shadowElevation = 4.dp,
@@ -1720,10 +1832,65 @@ private fun RadarLocationMarker() {
     }
 }
 
+private fun radarMapPoint(
+    latitude: Double,
+    longitude: Double,
+    viewport: EcccRadarMapViewport,
+): Offset = Offset(
+    x = ((longitude - viewport.centerLongitude) / viewport.longitudeSpan + 0.5).toFloat(),
+    y = ((viewport.centerLatitude - latitude) / viewport.latitudeSpan + 0.5).toFloat(),
+)
+
+private fun clampRadarMapTranslation(
+    translation: Offset,
+    scale: Float,
+    width: Float,
+    height: Float,
+): Offset {
+    val maxX = (width * (scale - 1f) / 2f).coerceAtLeast(0f)
+    val maxY = (height * (scale - 1f) / 2f).coerceAtLeast(0f)
+    return Offset(
+        x = translation.x.coerceIn(-maxX, maxX),
+        y = translation.y.coerceIn(-maxY, maxY),
+    )
+}
+
+private fun radarViewportForTransform(
+    sourceViewport: EcccRadarMapViewport,
+    scale: Float,
+    translation: Offset,
+): EcccRadarMapViewport {
+    val safeScale = scale.coerceIn(RADAR_MIN_ZOOM, RADAR_MAX_ZOOM)
+    val sourceCenterX = sourceViewport.width / 2f
+    val sourceCenterY = sourceViewport.height / 2f
+    val visibleSourceX = (sourceCenterX - translation.x) / safeScale
+    val visibleSourceY = (sourceCenterY - translation.y) / safeScale
+    val centerLatitude = sourceViewport.centerLatitude -
+        ((visibleSourceY - sourceCenterY) / sourceViewport.height) * sourceViewport.latitudeSpan
+    val centerLongitude = sourceViewport.centerLongitude +
+        ((visibleSourceX - sourceCenterX) / sourceViewport.width) * sourceViewport.longitudeSpan
+    val latitudeSpan = (sourceViewport.latitudeSpan / safeScale).coerceIn(
+        RADAR_MAP_LATITUDE_SPAN / RADAR_MAX_ZOOM,
+        RADAR_MAP_LATITUDE_SPAN / RADAR_MIN_ZOOM,
+    )
+    val halfLatitudeSpan = latitudeSpan / 2.0
+
+    return EcccRadarMapViewport(
+        centerLatitude = centerLatitude.coerceIn(
+            -90.0 + halfLatitudeSpan,
+            90.0 - halfLatitudeSpan,
+        ),
+        centerLongitude = centerLongitude,
+        latitudeSpan = latitudeSpan,
+        width = sourceViewport.width,
+        height = sourceViewport.height,
+    )
+}
+
 @Composable
 private fun RadarMapLegend(modifier: Modifier) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(15.dp),
         color = Color(0xF2FFFFFF),
         shadowElevation = 4.dp,
@@ -1734,11 +1901,28 @@ private fun RadarMapLegend(modifier: Modifier) {
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Light", color = DeepBlue, fontSize = 10.sp)
-                Text("Moderate", color = DeepBlue, fontSize = 10.sp)
-                Text("Heavy", color = DeepBlue, fontSize = 10.sp)
+                Text(
+                    text = "Light",
+                    modifier = Modifier.weight(1f),
+                    color = DeepBlue,
+                    fontSize = 10.sp,
+                    textAlign = TextAlign.Start,
+                )
+                Text(
+                    text = "Moderate",
+                    modifier = Modifier.weight(1f),
+                    color = DeepBlue,
+                    fontSize = 10.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    text = "Heavy",
+                    modifier = Modifier.weight(1f),
+                    color = DeepBlue,
+                    fontSize = 10.sp,
+                    textAlign = TextAlign.End,
+                )
             }
             Box(
                 modifier = Modifier
@@ -1757,6 +1941,30 @@ private fun RadarMapLegend(modifier: Modifier) {
                         ),
                     ),
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics {
+                        contentDescription = "Radar data updates every 6 minutes"
+                    },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Radar updates every 6 min",
+                    color = DeepBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = DeepBlue,
+                    modifier = Modifier
+                        .padding(start = 5.dp)
+                        .size(18.dp),
+                )
+            }
         }
     }
 }

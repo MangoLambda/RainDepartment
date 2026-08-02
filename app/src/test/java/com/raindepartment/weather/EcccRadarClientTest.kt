@@ -1,5 +1,7 @@
 package com.raindepartment.weather
 
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -64,6 +66,46 @@ class EcccRadarClientTest {
     }
 
     @Test
+    fun mapViewportExpandsAndContractsWithZoom() {
+        val wideViewport = EcccRadarMapViewport.centeredOn(
+            location = AustinLocation,
+            zoom = RADAR_MIN_ZOOM,
+            width = 360,
+            height = 560,
+        )
+        val baseViewport = EcccRadarMapViewport.centeredOn(
+            location = AustinLocation,
+            zoom = 1f,
+            width = 360,
+            height = 560,
+        )
+        val closeViewport = EcccRadarMapViewport.centeredOn(
+            location = AustinLocation,
+            zoom = RADAR_MAX_ZOOM,
+            width = 360,
+            height = 560,
+        )
+
+        assertTrue(wideViewport.latitudeSpan > baseViewport.latitudeSpan)
+        assertTrue(closeViewport.latitudeSpan < baseViewport.latitudeSpan)
+
+        val wideBbox = decodedQueryValue(
+            ecccRadarMapUrl(AustinLocation, 1_785_660_000_000L, wideViewport),
+            "bbox",
+        ).split(",").map(String::toDouble)
+        val closeBbox = decodedQueryValue(
+            ecccRadarMapUrl(AustinLocation, 1_785_660_000_000L, closeViewport),
+            "bbox",
+        ).split(",").map(String::toDouble)
+
+        assertTrue(wideBbox[2] - wideBbox[0] > closeBbox[2] - closeBbox[0])
+        assertEquals(360, decodedQueryValue(
+            ecccRadarMapUrl(AustinLocation, 1_785_660_000_000L, wideViewport),
+            "width",
+        ).toInt())
+    }
+
+    @Test
     fun latestFrameDoesNotRunPastTheAvailableWindow() {
         val window = EcccRadarTimeWindow(
             startEpochMillis = 1_000L,
@@ -74,4 +116,15 @@ class EcccRadarClientTest {
         assertEquals(window.endEpochMillis, latestEcccRadarFrameTime(window, Long.MAX_VALUE))
         assertEquals(window.startEpochMillis, latestEcccRadarFrameTime(window, 0L))
     }
+
+    private fun decodedQueryValue(url: String, key: String): String = url
+        .substringAfter("?")
+        .split("&")
+        .map { parameter ->
+            val parts = parameter.split("=", limit = 2)
+            URLDecoder.decode(parts[0], StandardCharsets.UTF_8.name()) to
+                URLDecoder.decode(parts.getOrElse(1) { "" }, StandardCharsets.UTF_8.name())
+        }
+        .first { it.first == key }
+        .second
 }

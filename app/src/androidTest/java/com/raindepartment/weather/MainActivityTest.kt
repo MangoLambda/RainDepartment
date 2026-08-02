@@ -96,6 +96,26 @@ class MainActivityTest {
     }
 
     @Test
+    fun radarMapAdvertisesNorthUpGesturesAndSeparatedLegend() {
+        composeRule.onNodeWithText("Radar").performClick()
+        composeRule.waitUntil(3_000) {
+            composeRule
+                .onAllNodesWithText("Light")
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+
+        composeRule.onNodeWithContentDescription(
+            "Interactive north-up radar map. Drag to pan and pinch to zoom.",
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText("Light").assertIsDisplayed()
+        composeRule.onNodeWithText("Moderate").assertIsDisplayed()
+        composeRule.onNodeWithText("Heavy").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Radar data updates every 6 minutes")
+            .assertIsDisplayed()
+    }
+
+    @Test
     fun cityPickerCanSelectAnotherCity() {
         composeRule.onNodeWithContentDescription("Choose city").performClick()
         composeRule.onNodeWithText("Choose a city").assertIsDisplayed()

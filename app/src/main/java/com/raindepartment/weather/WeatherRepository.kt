@@ -198,7 +198,9 @@ private class LocationUnavailableException : IllegalStateException(
 internal object WeatherRepositoryFactory {
     fun create(context: Context): WeatherRepository = WeatherRepository(
         client = HttpGemWeatherClient(),
-        radarClient = HttpEcccRadarClient(),
+        radarClient = HttpEcccRadarClient(
+            cache = FileEcccRadarMapCache(context.applicationContext),
+        ),
         cache = SharedPreferencesWeatherCache(context.applicationContext),
         locationProvider = AndroidWeatherLocationProvider(context.applicationContext),
         preferredLocation = { WeatherPreferences.selectedLocation(context.applicationContext) },
