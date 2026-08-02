@@ -55,6 +55,7 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GpsFixed
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.LocationCity
 import androidx.compose.material.icons.outlined.Search
@@ -123,6 +124,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1297,34 +1299,43 @@ private fun BriefingContent(
                 errorMessage = errorMessage,
             )
         }
-        WeatherHeroCard(
-            forecast = forecast,
-            unitSystem = unitSystem,
-            backgroundWeather = backgroundWeather,
-            onLocationClick = onLocationClick,
-        )
         ForecastRangeSelector(
             selected = selectedRange,
             onSelected = onRangeSelected,
         )
-        HourlyForecastCard(forecast.hourly, unitSystem)
-        AdaptiveTwoColumn(
-            left = { childModifier -> PrecipitationCard(childModifier, forecast, unitSystem) },
-            right = { childModifier -> WindCard(childModifier, forecast, unitSystem) },
-        )
-        AdaptiveTwoColumn(
-            left = { childModifier -> SevenDayForecastCard(childModifier, forecast, unitSystem) },
-            right = { childModifier ->
-                Column(
-                    modifier = childModifier,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    RainfallOutlookCard(Modifier.fillMaxWidth(), forecast, unitSystem)
-                    SunriseSunsetCard(Modifier.fillMaxWidth(), forecast)
-                    DryWindowCard(Modifier.fillMaxWidth(), forecast)
-                }
-            },
-        )
+        if (selectedRange == ForecastRange.SEVEN_DAYS) {
+            SevenDayOutlookContent(
+                forecast = forecast,
+                unitSystem = unitSystem,
+                backgroundWeather = backgroundWeather,
+                onLocationClick = onLocationClick,
+            )
+        } else {
+            WeatherHeroCard(
+                forecast = forecast,
+                unitSystem = unitSystem,
+                backgroundWeather = backgroundWeather,
+                onLocationClick = onLocationClick,
+            )
+            HourlyForecastCard(forecast.hourly, unitSystem)
+            AdaptiveTwoColumn(
+                left = { childModifier -> PrecipitationCard(childModifier, forecast, unitSystem) },
+                right = { childModifier -> WindCard(childModifier, forecast, unitSystem) },
+            )
+            AdaptiveTwoColumn(
+                left = { childModifier -> SevenDayForecastCard(childModifier, forecast, unitSystem) },
+                right = { childModifier ->
+                    Column(
+                        modifier = childModifier,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        RainfallOutlookCard(Modifier.fillMaxWidth(), forecast, unitSystem)
+                        SunriseSunsetCard(Modifier.fillMaxWidth(), forecast)
+                        DryWindowCard(Modifier.fillMaxWidth(), forecast)
+                    }
+                },
+            )
+        }
         Spacer(modifier = Modifier.height(4.dp))
         OpenMeteoAttribution()
     }
@@ -1671,6 +1682,482 @@ private fun ForecastRangeSelector(
                 textAlign = TextAlign.Center,
             )
         }
+    }
+}
+
+@Composable
+private fun SevenDayOutlookContent(
+    forecast: DashboardForecast,
+    unitSystem: UnitSystem,
+    backgroundWeather: CurrentWeather,
+    onLocationClick: () -> Unit,
+) {
+    val days = forecast.daily.take(7)
+    if (days.isEmpty()) {
+        Text(
+            text = "The 7-day outlook is not available yet.",
+            modifier = Modifier.padding(vertical = 24.dp),
+            color = MutedNavy,
+            fontSize = 13.sp,
+        )
+        return
+    }
+
+    SevenDaySummaryCard(
+        forecast = forecast,
+        days = days,
+        unitSystem = unitSystem,
+        backgroundWeather = backgroundWeather,
+        onLocationClick = onLocationClick,
+    )
+    SevenDayDailyStrip(
+        forecast = forecast,
+        days = days,
+        unitSystem = unitSystem,
+    )
+    SevenDayPrecipitationCard(
+        forecast = forecast,
+        days = days,
+        unitSystem = unitSystem,
+    )
+    SevenDayInsightsCard(
+        forecast = forecast,
+        days = days,
+        unitSystem = unitSystem,
+    )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFFE5F1FC),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = null,
+                tint = AccentBlue,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "Forecasts can change. Check back for the latest updates.",
+                color = DeepBlue,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SevenDaySummaryCard(
+    forecast: DashboardForecast,
+    days: List<DailyForecast>,
+    unitSystem: UnitSystem,
+    backgroundWeather: CurrentWeather,
+    onLocationClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    val bitmap = remember(context, backgroundWeather.condition, backgroundWeather.isDay) {
+        BackplateLoader.bitmap(context, backgroundWeather)
+    }
+    val averageHigh = days.map { it.highFahrenheit }.average().roundToInt()
+    val averageLow = days.map { it.lowFahrenheit }.average().roundToInt()
+    val totalRain = days.sumOf { it.rainfallInches }
+    val representativeCondition = days
+        .groupingBy { it.condition }
+        .eachCount()
+        .maxByOrNull { it.value }
+        ?.key
+        ?: days.first().condition
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = BorderStroke(1.dp, Color(0xFFC9E1F5)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(204.dp)
+                .clip(RoundedCornerShape(20.dp)),
+        ) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color(0xE6EAF7FF),
+                                Color(0xBBD7F1FF),
+                                Color(0x35EAF7FC),
+                            ),
+                        ),
+                    ),
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 13.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onLocationClick),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.LocationOn,
+                        contentDescription = null,
+                        tint = DeepBlue,
+                        modifier = Modifier.size(17.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = forecast.location,
+                        modifier = Modifier.weight(1f),
+                        color = DeepBlue,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.ChevronRight,
+                        contentDescription = "Choose city",
+                        tint = DeepBlue,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.height(7.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Next 7 Days Outlook",
+                            color = DeepBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            text = sevenDayHeadline(days),
+                            color = Navy,
+                            fontSize = 25.sp,
+                            lineHeight = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = sevenDaySummary(days),
+                            color = MutedNavy,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                        )
+                    }
+                    ConditionIcon(
+                        condition = representativeCondition,
+                        modifier = Modifier.size(45.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SevenDaySummaryMetric(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.WbSunny,
+                        value = "${forecast.temperature(averageHigh, unitSystem)} / " +
+                            forecast.temperature(averageLow, unitSystem),
+                        label = "Avg. high / low",
+                    )
+                    MetricDivider()
+                    SevenDaySummaryMetric(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.WaterDrop,
+                        value = forecast.precipitation(totalRain, unitSystem),
+                        label = "Total precipitation",
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SevenDaySummaryMetric(
+    modifier: Modifier,
+    icon: ImageVector,
+    value: String,
+    label: String,
+) {
+    Row(
+        modifier = modifier.padding(horizontal = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = AccentBlue,
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Column {
+            Text(
+                text = value,
+                color = DeepBlue,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            Text(
+                text = label,
+                color = MutedNavy,
+                fontSize = 8.sp,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SevenDayDailyStrip(
+    forecast: DashboardForecast,
+    days: List<DailyForecast>,
+    unitSystem: UnitSystem,
+) {
+    DashboardCard(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(title = "Daily Forecast", action = "Next 7 Days", icon = Icons.Outlined.Cloud)
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            days.forEachIndexed { index, day ->
+                Surface(
+                    modifier = Modifier
+                        .width(78.dp)
+                        .height(148.dp),
+                    shape = RoundedCornerShape(15.dp),
+                    color = if (index == 0) Color(0xFFEAF5FF) else Color.White,
+                    border = BorderStroke(
+                        1.dp,
+                        if (index == 0) AccentBlue else Color(0xFFE2EAF1),
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = day.day,
+                            color = if (index == 0) AccentBlue else DeepBlue,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = if (index == 0) "Today" else "Day ${index + 1}",
+                            color = MutedNavy,
+                            fontSize = 8.sp,
+                        )
+                        Spacer(modifier = Modifier.height(7.dp))
+                        ConditionIcon(day.condition, Modifier.size(31.dp))
+                        Spacer(modifier = Modifier.height(5.dp))
+                        Text(
+                            text = forecast.temperature(day.highFahrenheit, unitSystem),
+                            color = Orange,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = forecast.temperature(day.lowFahrenheit, unitSystem),
+                            color = AccentBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Icon(
+                            imageVector = Icons.Outlined.WaterDrop,
+                            contentDescription = null,
+                            tint = AccentBlue,
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Text(
+                            text = "${day.precipitationChance}%",
+                            color = MutedNavy,
+                            fontSize = 9.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SevenDayPrecipitationCard(
+    forecast: DashboardForecast,
+    days: List<DailyForecast>,
+    unitSystem: UnitSystem,
+) {
+    val points = days.map { day ->
+        ChartPoint(day.day, day.rainfallInches.toFloat())
+    }
+    DashboardCard(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(
+            title = "Weekly Precipitation",
+            action = if (unitSystem == UnitSystem.IMPERIAL) "in" else "mm",
+            icon = Icons.Outlined.WaterDrop,
+        )
+        Text(
+            text = "Total: ${forecast.precipitation(days.sumOf { it.rainfallInches }, unitSystem)}",
+            color = MutedNavy,
+            fontSize = 10.sp,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        BarChart(
+            points = points,
+            valueLabel = { forecast.precipitation(it.toDouble(), unitSystem).substringBefore(' ') },
+        )
+    }
+}
+
+@Composable
+private fun SevenDayInsightsCard(
+    forecast: DashboardForecast,
+    days: List<DailyForecast>,
+    unitSystem: UnitSystem,
+) {
+    val bestDay = days.minWithOrNull(
+        compareBy<DailyForecast> { it.precipitationChance }
+            .thenBy { it.rainfallInches },
+    ) ?: days.first()
+    val wettestDay = days.maxByOrNull { it.rainfallInches } ?: days.first()
+
+    DashboardCard(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(title = "7-Day Insights", icon = Icons.Outlined.WbSunny)
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+        ) {
+            SevenDayInsight(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.Umbrella,
+                tint = Color(0xFF5AB867),
+                title = "Best outdoor day",
+                value = bestDay.day,
+                detail = "${bestDay.precipitationChance}% chance of rain",
+            )
+            SevenDayInsightDivider()
+            SevenDayInsight(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.WaterDrop,
+                tint = ChartBlue,
+                title = "Heaviest rain day",
+                value = wettestDay.day,
+                detail = forecast.precipitation(wettestDay.rainfallInches, unitSystem),
+            )
+            SevenDayInsightDivider()
+            SevenDayInsight(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.Air,
+                tint = Aqua,
+                title = "Peak wind",
+                value = forecast.windSpeed(forecast.peakWindMph, unitSystem),
+                detail = forecast.peakWindDirection,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SevenDayInsight(
+    modifier: Modifier,
+    icon: ImageVector,
+    tint: Color,
+    title: String,
+    value: String,
+    detail: String,
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(tint.copy(alpha = 0.18f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(21.dp))
+        }
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(
+            text = title,
+            color = MutedNavy,
+            fontSize = 8.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+        )
+        Text(
+            text = value,
+            color = DeepBlue,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
+        Text(
+            text = detail,
+            color = MutedNavy,
+            fontSize = 8.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun SevenDayInsightDivider() {
+    Box(
+        modifier = Modifier
+            .padding(top = 2.dp)
+            .width(1.dp)
+            .height(92.dp)
+            .background(Color(0xFFDCE8F1)),
+    )
+}
+
+private fun sevenDayHeadline(days: List<DailyForecast>): String {
+    val rainyDays = days.count { it.precipitationChance >= 50 || it.rainfallInches > 0.1 }
+    return when {
+        rainyDays >= (days.size * 0.6f).coerceAtLeast(1f) -> "Rainy days ahead"
+        rainyDays >= 2 -> "Mixed sun & showers"
+        else -> "Mostly clear days"
+    }
+}
+
+private fun sevenDaySummary(days: List<DailyForecast>): String {
+    val rainyDays = days.count { it.precipitationChance >= 50 || it.rainfallInches > 0.1 }
+    return when {
+        rainyDays >= 3 -> "Variable precipitation with a few wetter days."
+        rainyDays > 0 -> "A mix of sunshine and occasional showers."
+        else -> "Mostly dry weather with mild conditions."
     }
 }
 

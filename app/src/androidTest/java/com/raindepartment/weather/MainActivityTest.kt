@@ -46,6 +46,14 @@ class MainActivityTest {
     }
 
     @Test
+    fun sevenDayRangeShowsOutlookContent() {
+        composeRule.onNodeWithText("7 Days").performClick()
+        composeRule.onNodeWithText("Next 7 Days Outlook").assertIsDisplayed()
+        composeRule.onNodeWithText("Weekly Precipitation").assertIsDisplayed()
+        composeRule.onNodeWithText("7-Day Insights").assertIsDisplayed()
+    }
+
+    @Test
     fun settingsKeepsUnitAndWidgetControls() {
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Temperature units").assertIsDisplayed()
