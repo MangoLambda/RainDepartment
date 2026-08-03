@@ -3004,6 +3004,8 @@ private fun TimelineRainIcon(
         val dropSize = when {
             dropCount == 1 && maxWidth < 45.dp -> 12.dp
             dropCount == 1 -> 16.dp
+            dropCount == 2 && maxWidth < 45.dp -> 6.dp
+            dropCount == 2 -> 10.dp
             dropCount >= 6 && maxWidth < 45.dp -> 6.dp
             dropCount >= 6 -> 9.dp
             maxWidth < 45.dp -> 8.dp
@@ -3040,7 +3042,8 @@ internal data class TimelineRainDropPlacement(
 
 internal fun timelineRainDropPlacements(condition: WeatherCondition): List<TimelineRainDropPlacement> = when (condition) {
     WeatherCondition.DRIZZLE -> listOf(
-        TimelineRainDropPlacement(xFraction = 0.72f, yFraction = 0.78f),
+        TimelineRainDropPlacement(xFraction = 0.42f, yFraction = 0.76f),
+        TimelineRainDropPlacement(xFraction = 0.62f, yFraction = 0.88f),
     )
     WeatherCondition.RAIN -> listOf(
         TimelineRainDropPlacement(xFraction = 0.40f, yFraction = 0.77f),

@@ -7,8 +7,18 @@ import org.junit.Test
 class TimelineConditionIconTest {
     @Test
     fun drizzleAndShowersUseDifferentDropCounts() {
-        assertEquals(1, timelineRainDropCount(WeatherCondition.DRIZZLE))
+        assertEquals(2, timelineRainDropCount(WeatherCondition.DRIZZLE))
         assertEquals(3, timelineRainDropCount(WeatherCondition.RAIN))
+
+        val drizzlePlacements = timelineRainDropPlacements(WeatherCondition.DRIZZLE)
+        assertEquals(
+            listOf(0.42f, 0.62f),
+            drizzlePlacements.map { it.xFraction },
+        )
+        assertEquals(
+            listOf(0.76f, 0.88f),
+            drizzlePlacements.map { it.yFraction },
+        )
 
         val showerPlacements = timelineRainDropPlacements(WeatherCondition.RAIN)
         assertEquals(
