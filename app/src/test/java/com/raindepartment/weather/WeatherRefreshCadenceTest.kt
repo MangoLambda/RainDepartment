@@ -1,6 +1,8 @@
 package com.raindepartment.weather
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WeatherRefreshCadenceTest {
@@ -29,6 +31,31 @@ class WeatherRefreshCadenceTest {
         assertEquals(
             6L,
             refreshCadenceMinutes(forecast.copy(rainStartsAtEpochMillis = now + 29 * 60_000L), now),
+        )
+    }
+
+    @Test
+    fun widgetRefreshOnlyRunsDuringTheFinalHourBeforeRain() {
+        val now = 1_000_000L
+        val forecast = DashboardForecastTestData.forecast
+
+        assertTrue(
+            shouldScheduleWidgetRefresh(
+                forecast.copy(rainStartsAtEpochMillis = now + 60 * 60_000L),
+                now,
+            ),
+        )
+        assertFalse(
+            shouldScheduleWidgetRefresh(
+                forecast.copy(rainStartsAtEpochMillis = now + 61 * 60_000L),
+                now,
+            ),
+        )
+        assertFalse(
+            shouldScheduleWidgetRefresh(
+                forecast.copy(rainStartsAtEpochMillis = now),
+                now,
+            ),
         )
     }
 }

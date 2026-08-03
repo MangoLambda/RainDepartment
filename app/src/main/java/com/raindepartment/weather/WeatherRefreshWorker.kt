@@ -33,6 +33,7 @@ internal object WeatherRefreshScheduler {
         snapshot: WeatherSnapshot? = null,
         nowEpochMillis: Long = System.currentTimeMillis(),
     ) {
+        WeatherWidgetRefreshScheduler.schedule(context, snapshot, nowEpochMillis)
         enqueue(
             context = context,
             delayMinutes = snapshot?.let {
@@ -47,6 +48,7 @@ internal object WeatherRefreshScheduler {
         snapshot: WeatherSnapshot?,
         nowEpochMillis: Long = System.currentTimeMillis(),
     ) {
+        WeatherWidgetRefreshScheduler.schedule(context, snapshot, nowEpochMillis)
         enqueue(
             context = context,
             delayMinutes = snapshot?.let {
