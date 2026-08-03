@@ -225,6 +225,7 @@ class AppUpdateManager(context: Context) {
     private var downloadJob: Job? = null
     private var downloadedFile: File? = null
     private var downloadedRelease: UpdateRelease? = null
+    private var dismissedReleaseTag: String? = null
 
     suspend fun check() {
         val apiUrl = GitHubReleaseSource.releasesApiUrl(BuildConfig.RAINDEPARTMENT_UPDATE_BASE_URL)
@@ -245,7 +246,8 @@ class AppUpdateManager(context: Context) {
                     installedVersion = BuildConfig.VERSION_NAME,
                     installedVersionCode = BuildConfig.VERSION_CODE,
                 ) > 0 &&
-                preferences.getString(SKIPPED_RELEASE, null) != release.tag
+                preferences.getString(SKIPPED_RELEASE, null) != release.tag &&
+                dismissedReleaseTag != release.tag
             mutableState.value = if (shouldShow) {
                 UpdateUiState.Available(requireNotNull(release))
             } else {
@@ -319,6 +321,12 @@ class AppUpdateManager(context: Context) {
     fun skip(release: UpdateRelease) {
         preferences.edit().putString(SKIPPED_RELEASE, release.tag).apply()
         clearDownloadedFile()
+        mutableState.value = UpdateUiState.Idle
+    }
+
+    /** Hides this prompt for the current app run without permanently skipping the release. */
+    fun dismiss(release: UpdateRelease) {
+        dismissedReleaseTag = release.tag
         mutableState.value = UpdateUiState.Idle
     }
 

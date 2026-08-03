@@ -511,6 +511,7 @@ internal fun RainDepartmentApp(
                 updateManager.attachDownloadJob(job)
             },
             onSkip = updateManager::skip,
+            onDismiss = updateManager::dismiss,
             onCancelDownload = updateManager::cancelDownload,
             onInstall = { updateManager.install(activity) },
             onDismissError = updateManager::dismissError,
@@ -6262,13 +6263,14 @@ private fun UpdateDialog(
     state: UpdateUiState,
     onUpdate: (UpdateRelease) -> Unit,
     onSkip: (UpdateRelease) -> Unit,
+    onDismiss: (UpdateRelease) -> Unit,
     onCancelDownload: () -> Unit,
     onInstall: () -> Unit,
     onDismissError: () -> Unit,
 ) {
     when (state) {
         is UpdateUiState.Available -> AlertDialog(
-            onDismissRequest = { onSkip(state.release) },
+            onDismissRequest = { onDismiss(state.release) },
             title = { Text("${state.release.title} is available") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
