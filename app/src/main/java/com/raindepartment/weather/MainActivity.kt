@@ -1596,7 +1596,11 @@ private fun RadarMapCard(
                         translationY = mapTransform.translation.y
                     },
             ) {
-                RadarBaseMap(modifier = Modifier.fillMaxSize())
+                RadarBaseMap(
+                    modifier = Modifier.fillMaxSize(),
+                    location = location,
+                    viewport = sourceViewport,
+                )
                 bitmap?.let { image ->
                     Image(
                         bitmap = image,
@@ -1768,44 +1772,80 @@ private fun RadarMapCard(
 }
 
 @Composable
-private fun RadarBaseMap(modifier: Modifier) {
+private fun RadarBaseMap(
+    modifier: Modifier,
+    location: WeatherLocation,
+    viewport: EcccRadarMapViewport,
+) {
+    val anchorViewport = remember(location, viewport.width, viewport.height) {
+        EcccRadarMapViewport.centeredOn(
+            location = location,
+            width = viewport.width,
+            height = viewport.height,
+        )
+    }
     Canvas(modifier = modifier) {
+        fun canvasPoint(x: Float, y: Float): Offset {
+            val point = radarBaseMapPoint(
+                x = x,
+                y = y,
+                anchorViewport = anchorViewport,
+                viewport = viewport,
+            )
+            return Offset(
+                x = size.width * point.x,
+                y = size.height * point.y,
+            )
+        }
+
         drawRect(color = Color(0xFFE6ECDD))
 
         val river = Path().apply {
-            moveTo(size.width * 0.69f, 0f)
+            canvasPoint(0.69f, 0f).let { moveTo(it.x, it.y) }
+            val firstCurve = canvasPoint(0.61f, 0.18f)
+            val secondCurve = canvasPoint(0.78f, 0.32f)
+            val firstEnd = canvasPoint(0.65f, 0.48f)
             cubicTo(
-                size.width * 0.61f,
-                size.height * 0.18f,
-                size.width * 0.78f,
-                size.height * 0.32f,
-                size.width * 0.65f,
-                size.height * 0.48f,
+                firstCurve.x,
+                firstCurve.y,
+                secondCurve.x,
+                secondCurve.y,
+                firstEnd.x,
+                firstEnd.y,
             )
+            val thirdCurve = canvasPoint(0.57f, 0.63f)
+            val fourthCurve = canvasPoint(0.74f, 0.75f)
+            val secondEnd = canvasPoint(0.59f, 1f)
             cubicTo(
-                size.width * 0.57f,
-                size.height * 0.63f,
-                size.width * 0.74f,
-                size.height * 0.75f,
-                size.width * 0.59f,
-                size.height,
+                thirdCurve.x,
+                thirdCurve.y,
+                fourthCurve.x,
+                fourthCurve.y,
+                secondEnd.x,
+                secondEnd.y,
             )
-            lineTo(size.width * 0.49f, size.height)
+            canvasPoint(0.49f, 1f).let { lineTo(it.x, it.y) }
+            val fifthCurve = canvasPoint(0.65f, 0.74f)
+            val sixthCurve = canvasPoint(0.48f, 0.63f)
+            val thirdEnd = canvasPoint(0.57f, 0.47f)
             cubicTo(
-                size.width * 0.65f,
-                size.height * 0.74f,
-                size.width * 0.48f,
-                size.height * 0.63f,
-                size.width * 0.57f,
-                size.height * 0.47f,
+                fifthCurve.x,
+                fifthCurve.y,
+                sixthCurve.x,
+                sixthCurve.y,
+                thirdEnd.x,
+                thirdEnd.y,
             )
+            val seventhCurve = canvasPoint(0.68f, 0.30f)
+            val eighthCurve = canvasPoint(0.53f, 0.17f)
+            val fourthEnd = canvasPoint(0.61f, 0f)
             cubicTo(
-                size.width * 0.68f,
-                size.height * 0.30f,
-                size.width * 0.53f,
-                size.height * 0.17f,
-                size.width * 0.61f,
-                0f,
+                seventhCurve.x,
+                seventhCurve.y,
+                eighthCurve.x,
+                eighthCurve.y,
+                fourthEnd.x,
+                fourthEnd.y,
             )
             close()
         }
@@ -1821,15 +1861,15 @@ private fun RadarBaseMap(modifier: Modifier) {
             points.zipWithNext().forEach { (start, end) ->
                 drawLine(
                     color = Color(0xFFFAFBF8),
-                    start = Offset(size.width * start.first, size.height * start.second),
-                    end = Offset(size.width * end.first, size.height * end.second),
+                    start = canvasPoint(start.first, start.second),
+                    end = canvasPoint(end.first, end.second),
                     strokeWidth = 5.dp.toPx(),
                     cap = StrokeCap.Round,
                 )
                 drawLine(
                     color = Color(0xFFC8CFC8),
-                    start = Offset(size.width * start.first, size.height * start.second),
-                    end = Offset(size.width * end.first, size.height * end.second),
+                    start = canvasPoint(start.first, start.second),
+                    end = canvasPoint(end.first, end.second),
                     strokeWidth = 1.dp.toPx(),
                     cap = StrokeCap.Round,
                 )
@@ -1837,11 +1877,11 @@ private fun RadarBaseMap(modifier: Modifier) {
         }
 
         repeat(8) { index ->
-            val x = size.width * (0.07f + index * 0.13f)
+            val x = 0.07f + index * 0.13f
             drawLine(
                 color = Color(0xFFCDD6CE),
-                start = Offset(x, size.height * 0.06f),
-                end = Offset(x + size.width * 0.07f, size.height * 0.94f),
+                start = canvasPoint(x, 0.06f),
+                end = canvasPoint(x + 0.07f, 0.94f),
                 strokeWidth = 1.dp.toPx(),
             )
         }
@@ -1946,6 +1986,19 @@ private fun radarMapPoint(
 ): Offset = Offset(
     x = ((longitude - viewport.centerLongitude) / viewport.longitudeSpan + 0.5).toFloat(),
     y = ((viewport.centerLatitude - latitude) / viewport.latitudeSpan + 0.5).toFloat(),
+)
+
+internal fun radarBaseMapPoint(
+    x: Float,
+    y: Float,
+    anchorViewport: EcccRadarMapViewport,
+    viewport: EcccRadarMapViewport,
+): Offset = radarMapPoint(
+    latitude = anchorViewport.centerLatitude +
+        (0.5 - y.toDouble()) * anchorViewport.latitudeSpan,
+    longitude = anchorViewport.centerLongitude +
+        (x.toDouble() - 0.5) * anchorViewport.longitudeSpan,
+    viewport = viewport,
 )
 
 internal data class RadarMapLabelPlacement(

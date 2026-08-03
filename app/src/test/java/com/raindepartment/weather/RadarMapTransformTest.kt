@@ -83,6 +83,33 @@ class RadarMapTransformTest {
     }
 
     @Test
+    fun baseMapGeometryRemainsAnchoredWhenTheDownloadedViewportChanges() {
+        val anchorViewport = EcccRadarMapViewport.centeredOn(AustinLocation)
+        val zoomedViewport = EcccRadarMapViewport.centeredOn(
+            location = AustinLocation,
+            zoom = 2f,
+        )
+
+        val anchorPoint = radarBaseMapPoint(
+            x = 0.25f,
+            y = 0.25f,
+            anchorViewport = anchorViewport,
+            viewport = anchorViewport,
+        )
+        val zoomedPoint = radarBaseMapPoint(
+            x = 0.25f,
+            y = 0.25f,
+            anchorViewport = anchorViewport,
+            viewport = zoomedViewport,
+        )
+
+        assertEquals(0.25f, anchorPoint.x, 0.001f)
+        assertEquals(0.25f, anchorPoint.y, 0.001f)
+        assertEquals(0f, zoomedPoint.x, 0.001f)
+        assertEquals(0f, zoomedPoint.y, 0.001f)
+    }
+
+    @Test
     fun zoomingAcrossDownloadedFramesKeepsTheAbsoluteZoomLimits() {
         val source = EcccRadarMapViewport.centeredOn(
             location = AustinLocation,
