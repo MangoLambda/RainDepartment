@@ -32,6 +32,25 @@ class RadarMapTransformTest {
     }
 
     @Test
+    fun gestureZoomDirectionExpandsAndContractsTheViewportAsExpected() {
+        val source = EcccRadarMapViewport.centeredOn(AustinLocation)
+
+        val zoomedOut = radarViewportForTransform(
+            sourceViewport = source,
+            scale = radarScaleAfterGesture(previousScale = 1f, zoomChange = 2f),
+            translation = Offset.Zero,
+        )
+        val zoomedIn = radarViewportForTransform(
+            sourceViewport = source,
+            scale = radarScaleAfterGesture(previousScale = 1f, zoomChange = 0.5f),
+            translation = Offset.Zero,
+        )
+
+        assertTrue(zoomedOut.latitudeSpan > source.latitudeSpan)
+        assertTrue(zoomedIn.latitudeSpan < source.latitudeSpan)
+    }
+
+    @Test
     fun zoomingAcrossDownloadedFramesKeepsTheAbsoluteZoomLimits() {
         val source = EcccRadarMapViewport.centeredOn(
             location = AustinLocation,

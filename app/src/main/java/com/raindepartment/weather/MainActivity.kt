@@ -1562,8 +1562,10 @@ private fun RadarMapCard(
                             height = size.height.toFloat(),
                         )
                         val previousScale = currentTransform.scale
-                        val nextScale = (previousScale * zoomChange)
-                            .coerceIn(RADAR_MIN_GESTURE_SCALE, RADAR_MAX_GESTURE_SCALE)
+                        val nextScale = radarScaleAfterGesture(
+                            previousScale = previousScale,
+                            zoomChange = zoomChange,
+                        )
                         val scaleChange = nextScale / previousScale
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val candidateTranslation = centroid + pan +
@@ -1959,6 +1961,15 @@ internal data class RadarMapTransform(
     val scale: Float,
     val translation: Offset,
 )
+
+internal fun radarScaleAfterGesture(
+    previousScale: Float,
+    zoomChange: Float,
+): Float {
+    val safeZoomChange = zoomChange.takeIf { it.isFinite() && it > 0f } ?: 1f
+    return (previousScale / safeZoomChange)
+        .coerceIn(RADAR_MIN_GESTURE_SCALE, RADAR_MAX_GESTURE_SCALE)
+}
 
 internal fun shouldApplyRadarRefreshResult(
     requestSerialAtStart: Int,
