@@ -158,7 +158,7 @@ private fun WeatherWidgetContent(
     isStale: Boolean,
 ) {
     val nowEpochMillis = System.currentTimeMillis()
-    val radarRainStartText = forecast.radarRainStartText(nowEpochMillis)
+    val widgetRainStartText = forecast.widgetRainStartText(nowEpochMillis)
     val rainStartCountdownText = forecast.rainStartCountdownText(nowEpochMillis)
     Box(
         modifier = GlanceModifier
@@ -257,7 +257,7 @@ private fun WeatherWidgetContent(
                                         .width(12.dp)
                                         .height(12.dp),
                                 )
-                                if (radarRainStartText == null) {
+                                if (widgetRainStartText == null) {
                                     Spacer(modifier = GlanceModifier.width(3.dp))
                                     Text(
                                         text = "·  $rainStartCountdownText",
@@ -283,7 +283,7 @@ private fun WeatherWidgetContent(
                 }
             }
         }
-        radarRainStartText?.let { text ->
+        widgetRainStartText?.let { text ->
             Box(
                 modifier = GlanceModifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomStart,

@@ -61,15 +61,18 @@ class DashboardDataTest {
     }
 
     @Test
-    fun radarRainStartTextUsesHoursAndMinutesInsideThreeHourWindow() {
+    fun widgetRainStartTextOnlyShowsImminentRain() {
         val now = 1_000_000L
         val forecast = testForecast().copy(
-            rainStartsAtEpochMillis = now + 65 * 60_000L,
-            rainStartSource = RainStartSource.ECCC_RADAR,
+            rainStartsAtEpochMillis = now + 44 * 60_000L,
         )
 
-        assertEquals("rain starts, in 1 hour, 5 minutes", forecast.radarRainStartText(now))
-        assertEquals(null, testForecast().radarRainStartText(now))
+        assertEquals("Rain will start in 44 minutes", forecast.widgetRainStartText(now))
+        assertEquals(
+            null,
+            forecast.copy(rainStartsAtEpochMillis = now + 45 * 60_000L)
+                .widgetRainStartText(now),
+        )
         assertEquals("1 hour, 5 minutes", formatRainStartCountdown(65))
     }
 
@@ -87,14 +90,13 @@ class DashboardDataTest {
     }
 
     @Test
-    fun radarRainStartTextSaysWhenRainIsAlreadyFalling() {
+    fun widgetRainStartTextSaysWhenRainIsAlreadyFalling() {
         val now = 1_000_000L
         val forecast = testForecast().copy(
             rainStartsAtEpochMillis = now - 1L,
-            rainStartSource = RainStartSource.ECCC_RADAR,
         )
 
-        assertEquals("rain is falling now", forecast.radarRainStartText(now))
+        assertEquals("Rain is falling now", forecast.widgetRainStartText(now))
     }
 
     @Test
