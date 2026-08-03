@@ -630,7 +630,9 @@ private const val RADAR_MAP_REQUEST_HEIGHT = 1_120
 // The default view is local; this lower bound expands the map to roughly
 // continent scale when the user zooms all the way out.
 internal const val RADAR_MIN_ZOOM = 0.04f
-internal const val RADAR_MAX_ZOOM = 6f
+// The 1 km radar image is already oversampled at the default 720 x 1,120 view.
+// A 2x cap keeps individual radar cells readable without magnifying empty pixels.
+internal const val RADAR_MAX_ZOOM = 2f
 internal const val RADAR_CACHE_FRESHNESS_MILLIS = 6 * 60_000L
 
 internal fun ecccRadarFrameCacheKey(
