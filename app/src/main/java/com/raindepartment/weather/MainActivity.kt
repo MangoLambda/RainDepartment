@@ -1288,6 +1288,7 @@ private fun RadarScreen(
 
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (isActive) {
+                val requestSerialAtStart = requestSerial
                 val viewport = activeViewport ?: defaultViewport!!
                 val result = runCatching {
                     radarClient.fetchLatest(
@@ -1295,6 +1296,16 @@ private fun RadarScreen(
                         nowEpochMillis = System.currentTimeMillis(),
                         viewport = viewport,
                     )
+                }
+                if (!shouldApplyRadarRefreshResult(
+                        requestSerialAtStart = requestSerialAtStart,
+                        currentRequestSerial = requestSerial,
+                        requestedViewport = viewport,
+                        activeViewport = activeViewport,
+                    )
+                ) {
+                    delay(RADAR_SCREEN_REFRESH_INTERVAL_MILLIS)
+                    continue
                 }
                 val data = result.getOrNull()
                 val selected = selectedFrameTime
@@ -1948,6 +1959,14 @@ internal data class RadarMapTransform(
     val scale: Float,
     val translation: Offset,
 )
+
+internal fun shouldApplyRadarRefreshResult(
+    requestSerialAtStart: Int,
+    currentRequestSerial: Int,
+    requestedViewport: EcccRadarMapViewport,
+    activeViewport: EcccRadarMapViewport?,
+): Boolean = requestSerialAtStart == currentRequestSerial &&
+    (activeViewport == null || activeViewport.cacheKey() == requestedViewport.cacheKey())
 
 internal fun clampRadarMapTranslation(
     translation: Offset,

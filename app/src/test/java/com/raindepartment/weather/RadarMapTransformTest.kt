@@ -2,6 +2,8 @@ package com.raindepartment.weather
 
 import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RadarMapTransformTest {
@@ -74,6 +76,43 @@ class RadarMapTransformTest {
             source.centerLatitude - (120.0 / 600.0) * source.latitudeSpan,
             target.centerLatitude,
             0.000001,
+        )
+    }
+
+    @Test
+    fun refreshStartedBeforeViewportChangeCannotReplaceTheNewZoom() {
+        val previousViewport = EcccRadarMapViewport.centeredOn(AustinLocation, zoom = 2f)
+        val unzoomedViewport = EcccRadarMapViewport.centeredOn(AustinLocation, zoom = 1f)
+
+        assertFalse(
+            shouldApplyRadarRefreshResult(
+                requestSerialAtStart = 4,
+                currentRequestSerial = 5,
+                requestedViewport = previousViewport,
+                activeViewport = unzoomedViewport,
+            ),
+        )
+        assertFalse(
+            shouldApplyRadarRefreshResult(
+                requestSerialAtStart = 4,
+                currentRequestSerial = 4,
+                requestedViewport = previousViewport,
+                activeViewport = unzoomedViewport,
+            ),
+        )
+    }
+
+    @Test
+    fun refreshForTheActiveViewportCanBeApplied() {
+        val viewport = EcccRadarMapViewport.centeredOn(AustinLocation, zoom = 1f)
+
+        assertTrue(
+            shouldApplyRadarRefreshResult(
+                requestSerialAtStart = 4,
+                currentRequestSerial = 4,
+                requestedViewport = viewport,
+                activeViewport = viewport,
+            ),
         )
     }
 }
