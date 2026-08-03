@@ -3028,7 +3028,9 @@ private fun TimelineRainIcon(
                     .size(dropSize)
                     .offset(
                         x = maxWidth * placement.xFraction - dropSize / 2,
-                        y = maxHeight * placement.yFraction - dropSize / 2,
+                        y = maxHeight * (
+                            placement.yFraction + TIMELINE_RAIN_VERTICAL_OFFSET_FRACTION
+                        ) - dropSize / 2,
                     ),
             )
         }
@@ -3039,6 +3041,8 @@ internal data class TimelineRainDropPlacement(
     val xFraction: Float,
     val yFraction: Float,
 )
+
+private const val TIMELINE_RAIN_VERTICAL_OFFSET_FRACTION = 0.18f
 
 internal fun timelineRainDropPlacements(condition: WeatherCondition): List<TimelineRainDropPlacement> = when (condition) {
     WeatherCondition.DRIZZLE -> listOf(
