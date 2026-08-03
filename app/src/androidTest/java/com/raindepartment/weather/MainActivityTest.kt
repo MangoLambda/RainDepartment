@@ -129,11 +129,11 @@ class MainActivityTest {
     }
 
     @Test
-    fun radarTabShowsEcccTimelineAndRefreshCadence() {
+    fun radarTabShowsEcccTimeline() {
         composeRule.onNodeWithText("Radar").performClick()
         composeRule.waitUntil(3_000) {
             composeRule
-                .onAllNodesWithText("Light")
+                .onAllNodesWithContentDescription("Radar timeline slider")
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
@@ -141,17 +141,20 @@ class MainActivityTest {
         composeRule.onAllNodesWithText("Latest frame", substring = true).assertCountEquals(0)
         composeRule.onNodeWithText("Rain arriving in ~1h").assertIsDisplayed()
         composeRule.onNodeWithText("Confidence: Medium").assertIsDisplayed()
-        composeRule.onNodeWithText("Radar updates", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Radar data updates every 6 minutes")
-            .assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Radar timeline slider").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Light").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Moderate").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Heavy").assertCountEquals(0)
     }
 
     @Test
-    fun radarMapAdvertisesNorthUpGesturesAndSeparatedLegend() {
+    fun radarMapAdvertisesNorthUpGesturesAndControls() {
         composeRule.onNodeWithText("Radar").performClick()
         composeRule.waitUntil(3_000) {
             composeRule
-                .onAllNodesWithText("Light")
+                .onAllNodesWithContentDescription(
+                    "Interactive north-up radar map. Drag to pan and pinch to zoom.",
+                )
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
@@ -159,15 +162,10 @@ class MainActivityTest {
         composeRule.onNodeWithContentDescription(
             "Interactive north-up radar map. Drag to pan and pinch to zoom.",
         ).assertIsDisplayed()
-        composeRule.onNodeWithText("Light").assertIsDisplayed()
-        composeRule.onNodeWithText("Moderate").assertIsDisplayed()
-        composeRule.onNodeWithText("Heavy").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Zoom in on radar map").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Zoom out on radar map").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Reset radar map view").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Radar timeline slider").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Radar data updates every 6 minutes")
-            .assertIsDisplayed()
     }
 
     @Test

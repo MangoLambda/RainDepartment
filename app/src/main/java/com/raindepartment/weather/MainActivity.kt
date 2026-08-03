@@ -1746,12 +1746,6 @@ private fun RadarMapCard(
             )
         }
 
-        RadarMapLegend(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 14.dp, end = 14.dp, bottom = 126.dp),
-        )
-
         RadarTimelineControls(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -1963,88 +1957,6 @@ internal fun radarViewportForTransform(
         width = sourceViewport.width,
         height = sourceViewport.height,
     )
-}
-
-@Composable
-private fun RadarMapLegend(modifier: Modifier) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(15.dp),
-        color = Color(0xF2FFFFFF),
-        shadowElevation = 4.dp,
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = "Light",
-                    modifier = Modifier.weight(1f),
-                    color = DeepBlue,
-                    fontSize = 10.sp,
-                    textAlign = TextAlign.Start,
-                )
-                Text(
-                    text = "Moderate",
-                    modifier = Modifier.weight(1f),
-                    color = DeepBlue,
-                    fontSize = 10.sp,
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    text = "Heavy",
-                    modifier = Modifier.weight(1f),
-                    color = DeepBlue,
-                    fontSize = 10.sp,
-                    textAlign = TextAlign.End,
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                Color(0xFF36A853),
-                                Color(0xFFE0D829),
-                                Color(0xFFF18D20),
-                                Color(0xFFD9272E),
-                                Color(0xFFE342A5),
-                            ),
-                        ),
-                    ),
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription = "Radar data updates every 6 minutes"
-                    },
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Radar updates every 6 min",
-                    color = DeepBlue,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = null,
-                    tint = DeepBlue,
-                    modifier = Modifier
-                        .padding(start = 5.dp)
-                        .size(18.dp),
-                )
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
