@@ -121,6 +121,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1800,11 +1801,14 @@ private fun RadarBaseMap(
 
         drawRect(color = Color(0xFFE6ECDD))
 
+        // The ECCC radar PNG is transparent, so this is only a light geographic hint behind it.
+        // Keep the waterway as a centreline: the previous closed polygon made a small river look
+        // wider than the distance between nearby cities.
         val river = Path().apply {
-            canvasPoint(0.69f, 0f).let { moveTo(it.x, it.y) }
-            val firstCurve = canvasPoint(0.61f, 0.18f)
-            val secondCurve = canvasPoint(0.78f, 0.32f)
-            val firstEnd = canvasPoint(0.65f, 0.48f)
+            canvasPoint(0.54f, -0.08f).let { moveTo(it.x, it.y) }
+            val firstCurve = canvasPoint(0.49f, 0.16f)
+            val secondCurve = canvasPoint(0.56f, 0.32f)
+            val firstEnd = canvasPoint(0.51f, 0.49f)
             cubicTo(
                 firstCurve.x,
                 firstCurve.y,
@@ -1813,9 +1817,9 @@ private fun RadarBaseMap(
                 firstEnd.x,
                 firstEnd.y,
             )
-            val thirdCurve = canvasPoint(0.57f, 0.63f)
-            val fourthCurve = canvasPoint(0.74f, 0.75f)
-            val secondEnd = canvasPoint(0.59f, 1f)
+            val thirdCurve = canvasPoint(0.46f, 0.66f)
+            val fourthCurve = canvasPoint(0.55f, 0.84f)
+            val secondEnd = canvasPoint(0.50f, 1.08f)
             cubicTo(
                 thirdCurve.x,
                 thirdCurve.y,
@@ -1824,32 +1828,15 @@ private fun RadarBaseMap(
                 secondEnd.x,
                 secondEnd.y,
             )
-            canvasPoint(0.49f, 1f).let { lineTo(it.x, it.y) }
-            val fifthCurve = canvasPoint(0.65f, 0.74f)
-            val sixthCurve = canvasPoint(0.48f, 0.63f)
-            val thirdEnd = canvasPoint(0.57f, 0.47f)
-            cubicTo(
-                fifthCurve.x,
-                fifthCurve.y,
-                sixthCurve.x,
-                sixthCurve.y,
-                thirdEnd.x,
-                thirdEnd.y,
-            )
-            val seventhCurve = canvasPoint(0.68f, 0.30f)
-            val eighthCurve = canvasPoint(0.53f, 0.17f)
-            val fourthEnd = canvasPoint(0.61f, 0f)
-            cubicTo(
-                seventhCurve.x,
-                seventhCurve.y,
-                eighthCurve.x,
-                eighthCurve.y,
-                fourthEnd.x,
-                fourthEnd.y,
-            )
-            close()
         }
-        drawPath(path = river, color = Color(0xFFB9D3E6))
+        drawPath(
+            path = river,
+            color = Color(0xFFB9D3E6),
+            style = Stroke(
+                width = 2.5.dp.toPx(),
+                cap = StrokeCap.Round,
+            ),
+        )
 
         val majorRoads = listOf(
             listOf(0.03f to 0.18f, 0.36f to 0.28f, 0.67f to 0.22f, 1f to 0.34f),
