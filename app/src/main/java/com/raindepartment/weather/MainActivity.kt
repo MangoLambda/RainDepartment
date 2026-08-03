@@ -1605,7 +1605,10 @@ private fun RadarMapCard(
                         contentScale = ContentScale.FillBounds,
                     )
                 }
-                RadarMapLabels(location = location)
+                RadarMapLabels(
+                    location = location,
+                    viewport = sourceViewport,
+                )
                 RadarLocationMarker(location = location, viewport = sourceViewport)
             }
         }
@@ -1846,70 +1849,61 @@ private fun RadarBaseMap(modifier: Modifier) {
 }
 
 @Composable
-private fun RadarMapLabels(location: WeatherLocation) {
+private fun RadarMapLabels(
+    location: WeatherLocation,
+    viewport: EcccRadarMapViewport,
+) {
     val city = location.label.substringBefore(",").ifBlank { "Current location" }
-    val nearbyCities = remember(location) {
-        WeatherCities.nearestTo(location, limit = 6)
-            .map { it.label.substringBefore(",") }
-            .filter { it != city }
-            .distinct()
+    val nearbyLabels = remember(location, viewport.cacheKey()) {
+        radarMapLabelPlacements(location, viewport)
     }
-    val northLabel = nearbyCities.getOrNull(0) ?: "North"
-    val eastLabel = nearbyCities.getOrNull(1) ?: "East"
-    val southLabel = nearbyCities.getOrNull(2) ?: "South"
-    val westLabel = nearbyCities.getOrNull(3) ?: "West"
-    Box(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = northLabel,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 106.dp),
-            color = DeepBlue,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
+    val labelWidth = 104.dp
+    val labelHeight = 24.dp
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        nearbyLabels.forEach { placement ->
+            Box(
+                modifier = Modifier
+                    .offset(
+                        x = maxWidth * placement.point.x - labelWidth / 2,
+                        y = maxHeight * placement.point.y - labelHeight / 2,
+                    )
+                    .size(labelWidth, labelHeight),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = placement.label,
+                    color = DeepBlue,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        val locationPoint = radarMapPoint(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            viewport = viewport,
         )
-        Text(
-            text = eastLabel,
+        Box(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 108.dp, end = 26.dp),
-            color = DeepBlue,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-        )
-        Text(
-            text = city,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(top = 40.dp),
-            color = Color(0xFF0B315F),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = southLabel,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(top = 118.dp, end = 116.dp),
-            color = DeepBlue,
-            fontSize = 12.sp,
-        )
-        Text(
-            text = westLabel,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 25.dp, top = 245.dp),
-            color = DeepBlue,
-            fontSize = 12.sp,
-        )
-        Text(
-            text = nearbyCities.getOrNull(4) ?: "Radar area",
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 24.dp, top = 165.dp),
-            color = DeepBlue,
-            fontSize = 12.sp,
-        )
+                .offset(
+                    x = maxWidth * locationPoint.x - labelWidth / 2,
+                    y = maxHeight * locationPoint.y + 18.dp,
+                )
+                .size(labelWidth, labelHeight),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = city,
+                color = Color(0xFF0B315F),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -1953,6 +1947,32 @@ private fun radarMapPoint(
     x = ((longitude - viewport.centerLongitude) / viewport.longitudeSpan + 0.5).toFloat(),
     y = ((viewport.centerLatitude - latitude) / viewport.latitudeSpan + 0.5).toFloat(),
 )
+
+internal data class RadarMapLabelPlacement(
+    val label: String,
+    val point: Offset,
+)
+
+internal fun radarMapLabelPlacements(
+    location: WeatherLocation,
+    viewport: EcccRadarMapViewport,
+    limit: Int = 6,
+): List<RadarMapLabelPlacement> {
+    val city = location.label.substringBefore(",").ifBlank { "Current location" }
+    return WeatherCities.nearestTo(location, limit = limit)
+        .map { nearbyCity ->
+            RadarMapLabelPlacement(
+                label = nearbyCity.label.substringBefore(","),
+                point = radarMapPoint(
+                    latitude = nearbyCity.latitude,
+                    longitude = nearbyCity.longitude,
+                    viewport = viewport,
+                ),
+            )
+        }
+        .filter { it.label != city }
+        .distinctBy { it.label }
+}
 
 internal data class RadarMapTransform(
     val scale: Float,

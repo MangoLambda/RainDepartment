@@ -68,6 +68,21 @@ class RadarMapTransformTest {
     }
 
     @Test
+    fun radarCityLabelsFollowTheirGeographicPositions() {
+        val sherbrooke = WeatherCities.all.first { it.label == "Sherbrooke, Quebec" }
+        val viewport = EcccRadarMapViewport.centeredOn(sherbrooke.location)
+        val placements = radarMapLabelPlacements(sherbrooke.location, viewport)
+        val magog = placements.first { it.label == "Magog" }
+        val bromont = placements.first { it.label == "Bromont" }
+        val granby = placements.first { it.label == "Granby" }
+
+        assertTrue(magog.point.x < 0.5f)
+        assertTrue(magog.point.y > 0.5f)
+        assertTrue(bromont.point.x < magog.point.x)
+        assertTrue(granby.point.x < bromont.point.x)
+    }
+
+    @Test
     fun zoomingAcrossDownloadedFramesKeepsTheAbsoluteZoomLimits() {
         val source = EcccRadarMapViewport.centeredOn(
             location = AustinLocation,
