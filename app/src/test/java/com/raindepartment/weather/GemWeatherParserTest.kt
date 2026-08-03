@@ -35,6 +35,20 @@ class GemWeatherParserTest {
     }
 
     @Test
+    fun doesNotStartRainForHourlyAmountBelowMinimum() {
+        val belowMinimum = FIXTURE.replace(
+            "\"precipitation\":[0,0,0.1,0.2,0]",
+            "\"precipitation\":[0,0,0.003,0.0038,0]",
+        )
+
+        val forecast = GemWeatherParser.parse(belowMinimum, AustinLocation).forecast
+
+        assertEquals("No rain expected", forecast.rainStartsIn)
+        assertEquals(null, forecast.rainStartsAtEpochMillis)
+        assertEquals(RainStartSource.NONE, forecast.rainStartSource)
+    }
+
+    @Test
     fun rejectsApiErrorsAndMismatchedSeries() {
         val error = assertFails { GemWeatherParser.parse("{\"error\":true,\"reason\":\"bad request\"}", AustinLocation) }
         assertTrue(error.message!!.contains("bad request"))

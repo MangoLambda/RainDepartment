@@ -118,8 +118,8 @@ class EcccWeatherParserTest {
         assertEquals(59, forecast.daily.first().lowFahrenheit)
         assertFalse(forecast.daily.first().rainfallAmountAvailable)
         assertEquals(80, forecast.daily.first().precipitationChance)
-        assertTrue(forecast.rainStartsAtEpochMillis != null)
-        assertEquals(RainStartSource.ECCC_FORECAST, forecast.rainStartSource)
+        assertEquals(null, forecast.rainStartsAtEpochMillis)
+        assertEquals(RainStartSource.NONE, forecast.rainStartSource)
     }
 
     @Test
@@ -198,5 +198,82 @@ class EcccWeatherParserTest {
         assertEquals(0.68, forecast.daily.first().rainfallInches, 0.0)
         assertTrue(forecast.daily.first().rainfallAmountAvailable)
         assertEquals(0.42f, forecast.precipitation24h.first().value, 0.0f)
+    }
+
+    @Test
+    fun ecccForecastUsesMinimumMergedRainAmountForRainStart() = runBlocking {
+        val now = 1_000_000L
+        val primaryHourly = listOf(
+            HourlyForecast(
+                time = "Now",
+                precipitationChance = 80,
+                rainfallInches = 0.0,
+                temperatureFahrenheit = 70,
+                windMph = 10,
+                windDirection = "E",
+                windDirectionLabel = "E",
+                timeEpochMillis = now,
+                rainfallAmountAvailable = false,
+            ),
+            HourlyForecast(
+                time = "4 PM",
+                precipitationChance = 80,
+                rainfallInches = 0.0,
+                temperatureFahrenheit = 70,
+                windMph = 10,
+                windDirection = "E",
+                windDirectionLabel = "E",
+                timeEpochMillis = now + 60_000L,
+                rainfallAmountAvailable = false,
+            ),
+            HourlyForecast(
+                time = "5 PM",
+                precipitationChance = 80,
+                rainfallInches = 0.0,
+                temperatureFahrenheit = 70,
+                windMph = 10,
+                windDirection = "E",
+                windDirectionLabel = "E",
+                timeEpochMillis = now + 2 * 60_000L,
+                rainfallAmountAvailable = false,
+            ),
+        )
+        val supplementalHourly = primaryHourly.mapIndexed { index, hour ->
+            hour.copy(
+                rainfallInches = when (index) {
+                    0 -> 0.0
+                    1 -> MINIMUM_RAIN_START_AMOUNT_INCHES / 2.0
+                    else -> MINIMUM_RAIN_START_AMOUNT_INCHES
+                },
+                rainfallAmountAvailable = true,
+            )
+        }
+        val primaryForecast = DashboardForecastTestData.forecast.copy(
+            source = ForecastSource.ECCC,
+            currentPrecipitationInches = 0.0,
+            hourly = primaryHourly,
+            rainStartsAtEpochMillis = null,
+            rainStartSource = RainStartSource.NONE,
+        )
+        val supplementalForecast = primaryForecast.copy(
+            source = ForecastSource.GEM,
+            hourly = supplementalHourly,
+        )
+        val client = EcccFirstWeatherClient(
+            primary = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(primaryForecast, "America/Toronto")
+            },
+            fallback = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(supplementalForecast, "America/Toronto")
+            },
+        )
+
+        val forecast = client.fetch(AustinLocation).forecast
+
+        assertEquals(now + 2 * 60_000L, forecast.rainStartsAtEpochMillis)
+        assertEquals(RainStartSource.ECCC_FORECAST, forecast.rainStartSource)
+        assertEquals("2 minutes", forecast.rainStartsIn)
     }
 }

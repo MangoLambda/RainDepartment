@@ -2,6 +2,7 @@ package com.raindepartment.weather
 
 import java.util.Locale
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,6 +75,12 @@ class DashboardDataTest {
                 .widgetRainStartText(now),
         )
         assertEquals("1 hour, 5 minutes", formatRainStartCountdown(65))
+    }
+
+    @Test
+    fun rainStartAmountThresholdIsInclusiveAtPointOneMillimeters() {
+        assertFalse(hasMinimumRainStartAmount(MINIMUM_RAIN_START_AMOUNT_INCHES / 2.0))
+        assertTrue(hasMinimumRainStartAmount(MINIMUM_RAIN_START_AMOUNT_INCHES))
     }
 
     @Test

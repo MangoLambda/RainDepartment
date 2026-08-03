@@ -118,6 +118,7 @@ private fun ParsedGemWeather.withGemPrecipitation(
 
     return copy(
         forecast = forecast.copy(
+            currentPrecipitationInches = supplementalForecast.currentPrecipitationInches,
             expectedRainInches = if (forecast.expectedRainAmountAvailable) {
                 forecast.expectedRainInches
             } else {
@@ -137,7 +138,42 @@ private fun ParsedGemWeather.withGemPrecipitation(
             } else {
                 supplementalForecast.rainfallOutlook
             },
-        ),
+        ).withAmountBasedRainStart(),
+    )
+}
+
+private fun DashboardForecast.withAmountBasedRainStart(): DashboardForecast {
+    val currentTimeEpochMillis = hourly.firstOrNull()?.timeEpochMillis
+    val rainStartsAt = when {
+        currentTimeEpochMillis != null &&
+            hasMinimumRainStartAmount(currentPrecipitationInches) -> currentTimeEpochMillis
+        else -> hourly.asSequence()
+            .drop(1)
+            .mapNotNull { hour -> hour.timeEpochMillis?.let { it to hour } }
+            .firstOrNull { (timeEpochMillis, hour) ->
+                timeEpochMillis >= (currentTimeEpochMillis ?: Long.MIN_VALUE) &&
+                    hour.rainfallAmountAvailable &&
+                    hasMinimumRainStartAmount(hour.rainfallInches)
+            }
+            ?.first
+    }
+    val rainStartsIn = when {
+        rainStartsAt == null -> "No rain expected"
+        currentTimeEpochMillis == null || rainStartsAt <= currentTimeEpochMillis -> "Now"
+        else -> formatRainStartCountdown(
+            ((rainStartsAt - currentTimeEpochMillis + 59_999L) / 60_000L)
+                .coerceAtLeast(0L),
+        )
+    }
+    return copy(
+        rainStartsIn = rainStartsIn,
+        rainStartsAtEpochMillis = rainStartsAt,
+        rainStartSource = if (rainStartsAt == null) {
+            RainStartSource.NONE
+        } else {
+            RainStartSource.ECCC_FORECAST
+        },
+        rainStartConfidenceMeaningful = false,
     )
 }
 
@@ -247,18 +283,6 @@ internal object EcccWeatherParser {
             sunset = sunset,
         )
         val firstDay = dailyForecast.firstOrNull()
-        val rainStartsAt = when {
-            isRainBearing(currentRecord.condition) -> currentTime
-            else -> actualHourly.firstOrNull {
-                !it.time.isBefore(currentTime) &&
-                    (isRainBearing(it.condition) || it.precipitationChance >= 50)
-            }?.time
-        }
-        val rainStartsIn = when {
-            rainStartsAt == null -> "No rain expected"
-            !rainStartsAt.isAfter(currentTime) -> "Now"
-            else -> formatDuration(currentTime, rainStartsAt)
-        }
         val chartRecords = visibleRecords.take(24).filterIndexed { index, _ -> index % 3 == 0 }
         val windChart = chartRecords.mapIndexed { index, record ->
             ChartPoint(
@@ -282,7 +306,7 @@ internal object EcccWeatherParser {
                 location = location.label,
                 condition = currentCondition.first,
                 isDay = isDay,
-                rainStartsIn = rainStartsIn,
+                rainStartsIn = "No rain expected",
                 currentFahrenheit = currentRecord.temperatureFahrenheit,
                 feelsLikeFahrenheit = celsiusToFahrenheit(
                     current.measureNumber("humidex") ?: currentTemperatureC,
@@ -306,12 +330,8 @@ internal object EcccWeatherParser {
                 sunrise = sunrise,
                 sunset = sunset,
                 dryWindow = dryWindow(visibleRecords),
-                rainStartsAtEpochMillis = rainStartsAt?.toInstant()?.toEpochMilli(),
-                rainStartSource = if (rainStartsAt == null) {
-                    RainStartSource.NONE
-                } else {
-                    RainStartSource.ECCC_FORECAST
-                },
+                rainStartsAtEpochMillis = null,
+                rainStartSource = RainStartSource.NONE,
                 source = ForecastSource.ECCC,
             ),
             timezone = timezone.id,
@@ -632,26 +652,6 @@ internal object EcccWeatherParser {
             else -> WeatherCondition.OVERCAST
         }
         return condition to label
-    }
-
-    private fun isRainBearing(condition: WeatherCondition): Boolean = condition in setOf(
-        WeatherCondition.DRIZZLE,
-        WeatherCondition.RAIN,
-        WeatherCondition.HEAVY_RAIN,
-        WeatherCondition.THUNDERSTORM,
-        WeatherCondition.SEVERE_WEATHER,
-        WeatherCondition.WINTRY_MIX,
-    )
-
-    private fun formatDuration(from: ZonedDateTime, to: ZonedDateTime): String {
-        val minutes = Duration.between(from, to).toMinutes().coerceAtLeast(0L)
-        val hours = minutes / 60L
-        val remainingMinutes = minutes % 60L
-        return when {
-            hours == 0L -> "${remainingMinutes}m"
-            remainingMinutes == 0L -> "${hours}h"
-            else -> "${hours}h ${remainingMinutes}m"
-        }
     }
 
     private fun formatHour(time: ZonedDateTime): String = time.format(hourFormatter)

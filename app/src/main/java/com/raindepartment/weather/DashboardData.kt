@@ -220,9 +220,15 @@ internal fun HourlyForecast.windSpeed(unitSystem: UnitSystem): String {
 
 internal const val RADAR_RAIN_WINDOW_MINUTES = 3 * 60L
 internal const val WIDGET_RAIN_START_BOTTOM_WINDOW_MINUTES = 45L
+internal const val MINIMUM_RAIN_START_AMOUNT_MILLIMETERS = 0.1
+internal const val MINIMUM_RAIN_START_AMOUNT_INCHES =
+    MINIMUM_RAIN_START_AMOUNT_MILLIMETERS / 25.4
 internal const val RADAR_MEANINGFUL_RATE_MM_PER_HOUR = 0.1
 internal const val RADAR_MODERATE_RATE_MM_PER_HOUR = 2.5
 internal const val RADAR_HEAVY_RATE_MM_PER_HOUR = 7.6
+
+internal fun hasMinimumRainStartAmount(rainfallInches: Double): Boolean =
+    rainfallInches.isFinite() && rainfallInches >= MINIMUM_RAIN_START_AMOUNT_INCHES
 
 internal fun radarConditionForRainRate(rateMillimetersPerHour: Double): Pair<WeatherCondition, String>? {
     val rate = rateMillimetersPerHour.takeIf { it.isFinite() } ?: return null

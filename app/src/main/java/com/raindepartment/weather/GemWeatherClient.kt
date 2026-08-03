@@ -196,10 +196,10 @@ internal object GemWeatherParser {
 
         val currentPrecipitationInches = current.requiredDouble("precipitation").coerceAtLeast(0.0)
         val rainIndex = (currentIndex until hourlyLength).firstOrNull {
-            hourlyPrecipitation[it] > 0.005
+            hasMinimumRainStartAmount(hourlyPrecipitation[it])
         }
         val rainStartsAt = when {
-            currentPrecipitationInches > 0.005 -> currentTime
+            hasMinimumRainStartAmount(currentPrecipitationInches) -> currentTime
             rainIndex != null -> hourlyTimes[rainIndex]
             else -> null
         }

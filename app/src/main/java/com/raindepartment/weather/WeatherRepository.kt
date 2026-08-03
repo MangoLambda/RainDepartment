@@ -2,6 +2,7 @@ package com.raindepartment.weather
 
 import android.content.Context
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -168,6 +169,10 @@ internal class WeatherRepository(
             null
         } ?: return forecast
 
+        if (!forecast.hasMinimumRainAmountNear(radarRainStart.startsAtEpochMillis)) {
+            return forecast
+        }
+
         val radarCondition = radarRainStart.currentRateMillimetersPerHour
             ?.let(::radarConditionForRainRate)
         val hourly = if (radarCondition == null) {
@@ -202,6 +207,19 @@ internal class WeatherRepository(
             rainStartSource = RainStartSource.ECCC_RADAR,
             rainStartConfidenceMeaningful = radarRainStart.confidenceMeaningful,
         )
+    }
+
+    private fun DashboardForecast.hasMinimumRainAmountNear(
+        startsAtEpochMillis: Long,
+    ): Boolean {
+        val nearestHour = hourly
+            .asSequence()
+            .mapNotNull { hour -> hour.timeEpochMillis?.let { it to hour } }
+            .minByOrNull { (timeEpochMillis, _) -> abs(timeEpochMillis - startsAtEpochMillis) }
+            ?: return false
+        return abs(nearestHour.first - startsAtEpochMillis) <= 60 * 60_000L &&
+            nearestHour.second.rainfallAmountAvailable &&
+            hasMinimumRainStartAmount(nearestHour.second.rainfallInches)
     }
 
     private fun isStale(snapshot: WeatherSnapshot?): Boolean = snapshot != null &&
@@ -246,7 +264,7 @@ internal object WeatherRepositoryFactory {
 }
 
 internal object WeatherSnapshotCodec {
-    private const val VERSION = 3
+    private const val VERSION = 4
 
     fun encode(snapshot: WeatherSnapshot): String = JSONObject().apply {
         put("version", VERSION)

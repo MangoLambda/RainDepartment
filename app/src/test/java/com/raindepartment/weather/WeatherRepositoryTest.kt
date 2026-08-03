@@ -189,6 +189,13 @@ class WeatherRepositoryTest {
         val modelForecast = DashboardForecastTestData.forecast.copy(
             rainStartsAtEpochMillis = now + 2 * 60 * 60 * 1_000L,
             rainStartSource = RainStartSource.MODEL,
+            hourly = listOf(
+                DashboardForecastTestData.forecast.hourly.first().copy(
+                    rainfallInches = MINIMUM_RAIN_START_AMOUNT_INCHES,
+                    rainfallAmountAvailable = true,
+                    timeEpochMillis = now + 12 * 60_000L,
+                ),
+            ),
         )
         val repository = WeatherRepository(
             client = object : GemWeatherClient {
@@ -231,13 +238,15 @@ class WeatherRepositoryTest {
                 HourlyForecast(
                     time = "Now",
                     precipitationChance = 30,
-                    rainfallInches = 0.01,
+                    rainfallInches = MINIMUM_RAIN_START_AMOUNT_INCHES,
                     temperatureFahrenheit = 84,
                     windMph = 8,
                     windDirection = "N",
                     windDirectionLabel = "N",
                     condition = WeatherCondition.DRIZZLE,
                     conditionLabel = "Drizzle",
+                    timeEpochMillis = now,
+                    rainfallAmountAvailable = true,
                 ),
             ),
         )
@@ -273,7 +282,7 @@ class WeatherRepositoryTest {
     }
 
     @Test
-    fun radarStillRunsWhenForecastHasNoModelRainStart() = runBlocking {
+    fun radarStillRunsButDoesNotCreateRainStartBelowAmountThreshold() = runBlocking {
         val now = 10_000L
         var radarCalls = 0
         val repository = WeatherRepository(
@@ -283,6 +292,13 @@ class WeatherRepositoryTest {
                         DashboardForecastTestData.forecast.copy(
                             rainStartsAtEpochMillis = null,
                             rainStartSource = RainStartSource.NONE,
+                            hourly = listOf(
+                                DashboardForecastTestData.forecast.hourly.first().copy(
+                                    rainfallInches = 0.0,
+                                    rainfallAmountAvailable = true,
+                                    timeEpochMillis = now + 6 * 60_000L,
+                                ),
+                            ),
                         ),
                         "America/Chicago",
                     )
@@ -309,8 +325,12 @@ class WeatherRepositoryTest {
         assertTrue(result is RefreshResult.Updated)
         assertEquals(1, radarCalls)
         assertEquals(
-            RainStartSource.ECCC_RADAR,
+            RainStartSource.NONE,
             repository.state.value.snapshot?.forecast?.rainStartSource,
+        )
+        assertEquals(
+            null,
+            repository.state.value.snapshot?.forecast?.rainStartsAtEpochMillis,
         )
     }
 
