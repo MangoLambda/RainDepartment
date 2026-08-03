@@ -1278,8 +1278,9 @@ private fun RadarScreen(
             activeViewport = cached.viewport ?: defaultViewport
             state = RadarUiState(
                 window = cached.window,
-                frame = cached.frame.copy(
-                    viewport = cached.frame.viewport ?: cached.viewport ?: defaultViewport,
+                frame = radarFrameForRequestedViewport(
+                    frame = cached.frame,
+                    viewport = cached.viewport ?: defaultViewport!!,
                 ),
                 isLoading = false,
                 errorMessage = null,
@@ -1320,12 +1321,10 @@ private fun RadarScreen(
                         )
                     } else {
                         selectedFrameTime = null
-                        activeViewport = data.viewport ?: viewport
+                        activeViewport = viewport
                         RadarUiState(
                             window = data.window,
-                            frame = data.frame.copy(
-                                viewport = data.frame.viewport ?: data.viewport ?: viewport,
-                            ),
+                            frame = radarFrameForRequestedViewport(data.frame, viewport),
                             isLoading = false,
                             errorMessage = null,
                         )
@@ -1359,7 +1358,7 @@ private fun RadarScreen(
                 }
                 if (requestSerial != requestId) return@launch
                 val frame = result.getOrNull()?.let {
-                    it.copy(viewport = it.viewport ?: viewport)
+                    radarFrameForRequestedViewport(it, viewport)
                 }
                 state = if (frame != null) {
                     state.copy(
@@ -1396,12 +1395,10 @@ private fun RadarScreen(
                 if (requestSerial != requestId) return@launch
                 val data = result.getOrNull()
                 state = if (data != null) {
-                    activeViewport = data.viewport ?: viewport
+                    activeViewport = viewport
                     RadarUiState(
                         window = data.window,
-                        frame = data.frame.copy(
-                            viewport = data.frame.viewport ?: data.viewport ?: viewport,
-                        ),
+                        frame = radarFrameForRequestedViewport(data.frame, viewport),
                         isLoading = false,
                         errorMessage = null,
                     )
@@ -1967,9 +1964,14 @@ internal fun radarScaleAfterGesture(
     zoomChange: Float,
 ): Float {
     val safeZoomChange = zoomChange.takeIf { it.isFinite() && it > 0f } ?: 1f
-    return (previousScale / safeZoomChange)
+    return (previousScale * safeZoomChange)
         .coerceIn(RADAR_MIN_GESTURE_SCALE, RADAR_MAX_GESTURE_SCALE)
 }
+
+internal fun radarFrameForRequestedViewport(
+    frame: EcccRadarMapFrame,
+    viewport: EcccRadarMapViewport,
+): EcccRadarMapFrame = frame.copy(viewport = viewport)
 
 internal fun shouldApplyRadarRefreshResult(
     requestSerialAtStart: Int,

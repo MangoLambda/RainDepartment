@@ -37,17 +37,34 @@ class RadarMapTransformTest {
 
         val zoomedOut = radarViewportForTransform(
             sourceViewport = source,
-            scale = radarScaleAfterGesture(previousScale = 1f, zoomChange = 2f),
+            scale = radarScaleAfterGesture(previousScale = 1f, zoomChange = 0.5f),
             translation = Offset.Zero,
         )
         val zoomedIn = radarViewportForTransform(
             sourceViewport = source,
-            scale = radarScaleAfterGesture(previousScale = 1f, zoomChange = 0.5f),
+            scale = radarScaleAfterGesture(previousScale = 1f, zoomChange = 2f),
             translation = Offset.Zero,
         )
 
         assertTrue(zoomedOut.latitudeSpan > source.latitudeSpan)
         assertTrue(zoomedIn.latitudeSpan < source.latitudeSpan)
+    }
+
+    @Test
+    fun fetchedFrameUsesTheViewportThatWasRequested() {
+        val requestedViewport = EcccRadarMapViewport.centeredOn(AustinLocation, zoom = 0.5f)
+        val responseFrame = EcccRadarMapFrame(
+            timeEpochMillis = 1L,
+            imageBytes = ByteArray(0),
+            viewport = EcccRadarMapViewport.centeredOn(AustinLocation, zoom = 2f),
+        )
+
+        assertEquals(
+            requestedViewport.cacheKey(),
+            radarFrameForRequestedViewport(responseFrame, requestedViewport)
+                .viewport
+                ?.cacheKey(),
+        )
     }
 
     @Test
