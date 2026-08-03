@@ -83,6 +83,7 @@ class DashboardDataTest {
         )
 
         assertEquals("32 minutes", forecast.rainStartCountdownText(now))
+        assertEquals("Now", forecast.rainStartCountdownText(now + 32 * 60_000L))
     }
 
     @Test

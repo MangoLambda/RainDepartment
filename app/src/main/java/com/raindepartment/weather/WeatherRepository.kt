@@ -74,7 +74,7 @@ internal class WeatherRepository(
         updateLocation: Boolean = false,
         locationOverride: WeatherLocation? = null,
     ): RefreshResult = mutex.withLock {
-        val previous = mutableState.value.snapshot ?: cache.read()
+        val previous = synchronizeWithCache()
         val now = clock()
         if (!force && previous != null &&
             now - previous.fetchedAtEpochMillis <
@@ -138,6 +138,21 @@ internal class WeatherRepository(
             )
             RefreshResult.Failed(message, retryable)
         }
+    }
+
+    private fun synchronizeWithCache(): WeatherSnapshot? {
+        val cached = cache.read() ?: return mutableState.value.snapshot
+        val current = mutableState.value.snapshot
+        val cacheIsAtLeastAsRecent = current == null ||
+            cached.fetchedAtEpochMillis >= current.fetchedAtEpochMillis
+        if (cacheIsAtLeastAsRecent && cached != current) {
+            mutableState.value = stateFor(
+                snapshot = cached,
+                isRefreshing = false,
+                errorMessage = null,
+            )
+        }
+        return mutableState.value.snapshot ?: cached
     }
 
     private suspend fun applyRadarRainStartIfNeeded(

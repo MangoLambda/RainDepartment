@@ -2417,12 +2417,7 @@ private fun formatRadarFrameTime(epochMillis: Long): String =
         .format(Instant.ofEpochMilli(epochMillis))
 
 private fun radarArrivalText(forecast: DashboardForecast, nowEpochMillis: Long): String {
-    val countdown = forecast.rainStartMinutesFromNow(nowEpochMillis)
-    val value = if (countdown != null && countdown <= RADAR_RAIN_WINDOW_MINUTES) {
-        formatRainStartCountdown(countdown)
-    } else {
-        forecast.rainStartsIn.trim()
-    }
+    val value = forecast.rainStartCountdownText(nowEpochMillis).trim()
     return if (value.startsWith("~")) value else "~$value"
 }
 
@@ -4213,10 +4208,16 @@ private fun defaultTimelineHourIndex(forecast: DashboardForecast): Int {
     return hourly.indexOfFirst { it.time == "Now" }.takeIf { it >= 0 } ?: 0
 }
 
-private fun timelineRainMessage(forecast: DashboardForecast): String = when {
-    forecast.rainStartsIn.equals("No rain expected", ignoreCase = true) -> "No rain expected"
-    forecast.rainStartsIn.equals("Now", ignoreCase = true) -> "Rain is falling now"
-    else -> "Rain begins in ${forecast.rainStartsIn}"
+private fun timelineRainMessage(
+    forecast: DashboardForecast,
+    nowEpochMillis: Long = System.currentTimeMillis(),
+): String {
+    val rainStartText = forecast.rainStartCountdownText(nowEpochMillis)
+    return when {
+        rainStartText.equals("No rain expected", ignoreCase = true) -> "No rain expected"
+        rainStartText.equals("Now", ignoreCase = true) -> "Rain is falling now"
+        else -> "Rain begins in $rainStartText"
+    }
 }
 
 private fun timelineTitleCase(value: String): String = value
@@ -4432,6 +4433,7 @@ private fun WeatherHeroCard(
     onLocationClick: () -> Unit,
 ) {
     val context = LocalContext.current
+    val rainStartText = forecast.rainStartCountdownText(System.currentTimeMillis())
     val bitmap = remember(context, backgroundWeather.condition, backgroundWeather.isDay) {
         BackplateLoader.bitmap(context, backgroundWeather)
     }
@@ -4499,7 +4501,7 @@ private fun WeatherHeroCard(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = if (forecast.rainStartsIn.equals("Now", ignoreCase = true)) {
+                        text = if (rainStartText.equals("Now", ignoreCase = true)) {
                             "Rain is falling"
                         } else {
                             "Rain starts in"
@@ -4510,7 +4512,7 @@ private fun WeatherHeroCard(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = forecast.rainStartsIn,
+                        text = rainStartText,
                         color = Navy,
                         fontSize = 38.sp,
                         lineHeight = 40.sp,

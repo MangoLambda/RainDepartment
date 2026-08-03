@@ -246,7 +246,9 @@ internal fun DashboardForecast.rainStartMinutesFromNow(nowEpochMillis: Long): Lo
 
 internal fun DashboardForecast.rainStartCountdownText(nowEpochMillis: Long): String =
     rainStartMinutesFromNow(nowEpochMillis)
-        ?.let(::formatRainStartCountdown)
+        ?.let { minutes ->
+            if (minutes == 0L) "Now" else formatRainStartCountdown(minutes)
+        }
         ?: rainStartsIn
 
 internal fun DashboardForecast.isRadarRainStartWithinWindow(nowEpochMillis: Long): Boolean {

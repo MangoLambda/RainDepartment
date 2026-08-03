@@ -29,6 +29,34 @@ class WeatherRepositoryTest {
     }
 
     @Test
+    fun refreshSynchronizesANewerSnapshotWrittenByAnotherWorker() = runBlocking {
+        val initial = WeatherSnapshot(
+            location = AustinLocation,
+            timezone = "America/Chicago",
+            fetchedAtEpochMillis = 1L,
+            forecast = DashboardForecastTestData.forecast,
+        )
+        val cache = FakeCache(initial)
+        val repository = WeatherRepository(
+            client = object : GemWeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather {
+                    throw AssertionError("A recent cached snapshot should skip the network refresh")
+                }
+            },
+            cache = cache,
+            locationProvider = FakeLocationProvider(),
+            clock = { 100_000L },
+        )
+        val newer = initial.copy(fetchedAtEpochMillis = 99_000L)
+        cache.value = newer
+
+        val result = repository.refresh()
+
+        assertTrue(result is RefreshResult.Skipped)
+        assertEquals(newer, repository.state.value.snapshot)
+    }
+
+    @Test
     fun failedRefreshKeepsCachedSnapshotAndMarksError() = runBlocking {
         val cached = WeatherSnapshot(
             location = AustinLocation,
