@@ -1668,7 +1668,7 @@ private fun RadarMapCard(
         }
 
         Text(
-            text = "© OpenStreetMap contributors · OpenFreeMap",
+            text = "© OpenStreetMap contributors · © CARTO",
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 132.dp),

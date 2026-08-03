@@ -24,7 +24,7 @@ android {
         applicationId = "com.raindepartment.weather"
         minSdk = 26
         targetSdk = 35
-        versionCode = 62
+        versionCode = 63
         versionName = "0.0.1"
 
         buildConfigField("String", "RAINDEPARTMENT_UPDATE_BASE_URL", "\"$rainDepartmentUpdateBaseUrl\"")
@@ -77,7 +77,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.work.runtime)
-    implementation(libs.maplibre.android)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
