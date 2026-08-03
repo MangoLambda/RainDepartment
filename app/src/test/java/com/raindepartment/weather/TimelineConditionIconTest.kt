@@ -25,7 +25,16 @@ class TimelineConditionIconTest {
 
     @Test
     fun nonRainConditionsDoNotUseRainDropOverlay() {
-        assertEquals(4, timelineRainDropCount(WeatherCondition.HEAVY_RAIN))
+        assertEquals(6, timelineRainDropCount(WeatherCondition.HEAVY_RAIN))
+        val heavyRainPlacements = timelineRainDropPlacements(WeatherCondition.HEAVY_RAIN)
+        assertEquals(
+            listOf(0.25f, 0.50f, 0.75f, 0.38f, 0.62f, 0.86f),
+            heavyRainPlacements.map { it.xFraction },
+        )
+        assertEquals(
+            listOf(0.72f, 0.72f, 0.72f, 0.87f, 0.87f, 0.87f),
+            heavyRainPlacements.map { it.yFraction },
+        )
         assertNull(timelineRainDropCount(WeatherCondition.OVERCAST))
     }
 }
