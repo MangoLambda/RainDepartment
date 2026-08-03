@@ -43,6 +43,30 @@ class TimelineIntensityTest {
     }
 
     @Test
+    fun highRainBarsUseA75PercentFloorWithASmoothOneToFiveMillimeterRamp() {
+        assertEquals(
+            0.1f,
+            timelineIntensityBarHeightFraction(1f, 10f),
+            0.0001f,
+        )
+        assertEquals(
+            0.425f,
+            timelineIntensityBarHeightFraction(3f, 10f),
+            0.0001f,
+        )
+        assertEquals(
+            0.75f,
+            timelineIntensityBarHeightFraction(5f, 10f),
+            0.0001f,
+        )
+        assertEquals(
+            0.75f,
+            timelineIntensityBarHeightFraction(8f, 20f),
+            0.0001f,
+        )
+    }
+
+    @Test
     fun displayValuesConvertRadarRatesToSelectedUnits() {
         assertEquals(
             25.4f,

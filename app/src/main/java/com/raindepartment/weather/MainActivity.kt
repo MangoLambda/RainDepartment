@@ -2345,6 +2345,11 @@ private class BriefingScrollContainer(context: Context) : ScrollView(context) {
 
 private const val TIMELINE_RADAR_HALF_WINDOW_MILLIS = 60 * 60_000L
 private const val TIMELINE_INTENSITY_MINIMUM_AXIS_MAXIMUM_MILLIMETERS_PER_HOUR = 0.5f
+private const val TIMELINE_INTENSITY_BAR_MAX_HEIGHT_DP = 56f
+private const val TIMELINE_INTENSITY_BAR_MIN_HEIGHT_DP = 2f
+private const val TIMELINE_INTENSITY_BAR_HIGH_RAIN_START_MILLIMETERS_PER_HOUR = 1f
+private const val TIMELINE_INTENSITY_BAR_HIGH_RAIN_END_MILLIMETERS_PER_HOUR = 5f
+private const val TIMELINE_INTENSITY_BAR_HIGH_RAIN_MINIMUM_FRACTION = 0.75f
 
 private data class TimelineIntensityPoint(
     val timeEpochMillis: Long?,
@@ -2392,6 +2397,43 @@ internal fun timelineIntensityScale(valuesMillimetersPerHour: List<Float>): Time
         midpointMillimetersPerHour = axisMaximum / 2f,
     )
 }
+
+internal fun timelineIntensityBarHeightFraction(
+    valueMillimetersPerHour: Float,
+    maximumMillimetersPerHour: Float,
+): Float {
+    val value = valueMillimetersPerHour
+        .takeIf { it.isFinite() }
+        ?.coerceAtLeast(0f)
+        ?: 0f
+    if (value == 0f) return 1f / TIMELINE_INTENSITY_BAR_MAX_HEIGHT_DP
+
+    val maximum = maximumMillimetersPerHour
+        .takeIf { it.isFinite() }
+        ?.coerceAtLeast(value)
+        ?: value
+    val minimumFraction = TIMELINE_INTENSITY_BAR_MIN_HEIGHT_DP /
+        TIMELINE_INTENSITY_BAR_MAX_HEIGHT_DP
+    val linearFraction = (value / maximum).coerceIn(minimumFraction, 1f)
+    if (value <= TIMELINE_INTENSITY_BAR_HIGH_RAIN_START_MILLIMETERS_PER_HOUR) {
+        return linearFraction
+    }
+
+    val transitionFraction = (
+        (value - TIMELINE_INTENSITY_BAR_HIGH_RAIN_START_MILLIMETERS_PER_HOUR) /
+            (TIMELINE_INTENSITY_BAR_HIGH_RAIN_END_MILLIMETERS_PER_HOUR -
+                TIMELINE_INTENSITY_BAR_HIGH_RAIN_START_MILLIMETERS_PER_HOUR)
+        ).coerceIn(0f, 1f)
+    val lerpedMinimumFraction = timelineIntensityLerp(
+        start = (1f / maximum).coerceIn(minimumFraction, 1f),
+        end = TIMELINE_INTENSITY_BAR_HIGH_RAIN_MINIMUM_FRACTION,
+        fraction = transitionFraction,
+    )
+    return maxOf(linearFraction, lerpedMinimumFraction)
+}
+
+private fun timelineIntensityLerp(start: Float, end: Float, fraction: Float): Float =
+    start + (end - start) * fraction
 
 internal fun timelineIntensityDisplayValue(
     valueMillimetersPerHour: Float,
@@ -3421,12 +3463,10 @@ private fun TimelineIntensityBars(
                                 .takeIf { it.isFinite() }
                                 ?.coerceAtLeast(0f)
                                 ?: 0f
-                            val barHeight = if (value == 0f) {
-                                1f
-                            } else {
-                                (value / scale.maximumMillimetersPerHour * 56f)
-                                    .coerceIn(2f, 56f)
-                            }
+                            val barHeight = timelineIntensityBarHeightFraction(
+                                valueMillimetersPerHour = value,
+                                maximumMillimetersPerHour = scale.maximumMillimetersPerHour,
+                            ) * TIMELINE_INTENSITY_BAR_MAX_HEIGHT_DP
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -3466,12 +3506,10 @@ private fun TimelineIntensityBars(
                                 ?: 0f
                             val cellWidth = size.width / points.size
                             val centerX = cellWidth * (index + 0.5f)
-                            val barHeight = if (value == 0f) {
-                                1.dp.toPx()
-                            } else {
-                                (value / scale.maximumMillimetersPerHour * 56.dp.toPx())
-                                    .coerceIn(2.dp.toPx(), 56.dp.toPx())
-                            }
+                            val barHeight = timelineIntensityBarHeightFraction(
+                                valueMillimetersPerHour = value,
+                                maximumMillimetersPerHour = scale.maximumMillimetersPerHour,
+                            ) * TIMELINE_INTENSITY_BAR_MAX_HEIGHT_DP.dp.toPx()
                             val barTop = size.height - barHeight
                             drawLine(
                                 color = AccentBlue,
