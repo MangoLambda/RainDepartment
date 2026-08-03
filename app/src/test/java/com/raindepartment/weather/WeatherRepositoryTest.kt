@@ -230,23 +230,23 @@ class WeatherRepositoryTest {
     fun currentRadarRainOverridesModelConditionAndCurrentHourlyLabel() = runBlocking {
         val now = 10_000L
         val modelForecast = DashboardForecastTestData.forecast.copy(
-            condition = WeatherCondition.DRIZZLE,
-            conditionLabel = "Drizzle",
+            condition = WeatherCondition.OVERCAST,
+            conditionLabel = "Overcast",
             rainStartsAtEpochMillis = now + 2 * 60 * 60 * 1_000L,
             rainStartSource = RainStartSource.MODEL,
             hourly = listOf(
                 HourlyForecast(
                     time = "Now",
                     precipitationChance = 30,
-                    rainfallInches = MINIMUM_RAIN_START_AMOUNT_INCHES,
+                    rainfallInches = 0.0,
                     temperatureFahrenheit = 84,
                     windMph = 8,
                     windDirection = "N",
                     windDirectionLabel = "N",
-                    condition = WeatherCondition.DRIZZLE,
-                    conditionLabel = "Drizzle",
+                    condition = WeatherCondition.OVERCAST,
+                    conditionLabel = "Overcast",
                     timeEpochMillis = now,
-                    rainfallAmountAvailable = true,
+                    rainfallAmountAvailable = false,
                 ),
             ),
         )
@@ -282,7 +282,7 @@ class WeatherRepositoryTest {
     }
 
     @Test
-    fun radarStillRunsButDoesNotCreateRainStartBelowAmountThreshold() = runBlocking {
+    fun meaningfulRadarStartDoesNotDependOnHourlyModelAmount() = runBlocking {
         val now = 10_000L
         var radarCalls = 0
         val repository = WeatherRepository(
@@ -325,11 +325,11 @@ class WeatherRepositoryTest {
         assertTrue(result is RefreshResult.Updated)
         assertEquals(1, radarCalls)
         assertEquals(
-            RainStartSource.NONE,
+            RainStartSource.ECCC_RADAR,
             repository.state.value.snapshot?.forecast?.rainStartSource,
         )
         assertEquals(
-            null,
+            now + 6 * 60_000L,
             repository.state.value.snapshot?.forecast?.rainStartsAtEpochMillis,
         )
     }

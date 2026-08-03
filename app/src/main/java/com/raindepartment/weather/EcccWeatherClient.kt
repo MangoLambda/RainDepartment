@@ -146,7 +146,7 @@ private fun DashboardForecast.withAmountBasedRainStart(): DashboardForecast {
     val currentTimeEpochMillis = hourly.firstOrNull()?.timeEpochMillis
     val rainStartsAt = when {
         currentTimeEpochMillis != null &&
-            hasMinimumRainStartAmount(currentPrecipitationInches) -> currentTimeEpochMillis
+            condition.isRainBearing() -> currentTimeEpochMillis
         else -> hourly.asSequence()
             .drop(1)
             .mapNotNull { hour -> hour.timeEpochMillis?.let { it to hour } }
@@ -295,6 +295,7 @@ internal object EcccWeatherParser {
         val firstDailyChance = firstDay?.precipitationChance ?: currentRecord.precipitationChance
         val firstDailyChanceAvailable = firstDay?.precipitationChanceAvailable
             ?: currentRecord.precipitationChanceAvailable
+        val rainStartsAt = currentTime.takeIf { currentCondition.first.isRainBearing() }
         val peakWind = firstDay?.let {
             EcccWind(it.peakWindMph, it.peakWindDirection)
         } ?: visibleRecords.maxByOrNull { it.windMph }?.let {
@@ -306,7 +307,7 @@ internal object EcccWeatherParser {
                 location = location.label,
                 condition = currentCondition.first,
                 isDay = isDay,
-                rainStartsIn = "No rain expected",
+                rainStartsIn = if (rainStartsAt == null) "No rain expected" else "Now",
                 currentFahrenheit = currentRecord.temperatureFahrenheit,
                 feelsLikeFahrenheit = celsiusToFahrenheit(
                     current.measureNumber("humidex") ?: currentTemperatureC,
@@ -330,8 +331,12 @@ internal object EcccWeatherParser {
                 sunrise = sunrise,
                 sunset = sunset,
                 dryWindow = dryWindow(visibleRecords),
-                rainStartsAtEpochMillis = null,
-                rainStartSource = RainStartSource.NONE,
+                rainStartsAtEpochMillis = rainStartsAt?.toInstant()?.toEpochMilli(),
+                rainStartSource = if (rainStartsAt == null) {
+                    RainStartSource.NONE
+                } else {
+                    RainStartSource.ECCC_FORECAST
+                },
                 source = ForecastSource.ECCC,
             ),
             timezone = timezone.id,

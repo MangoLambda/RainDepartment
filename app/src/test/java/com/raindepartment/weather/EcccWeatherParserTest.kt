@@ -118,8 +118,9 @@ class EcccWeatherParserTest {
         assertEquals(59, forecast.daily.first().lowFahrenheit)
         assertFalse(forecast.daily.first().rainfallAmountAvailable)
         assertEquals(80, forecast.daily.first().precipitationChance)
-        assertEquals(null, forecast.rainStartsAtEpochMillis)
-        assertEquals(RainStartSource.NONE, forecast.rainStartSource)
+        assertEquals("Now", forecast.rainStartsIn)
+        assertTrue(forecast.rainStartsAtEpochMillis != null)
+        assertEquals(RainStartSource.ECCC_FORECAST, forecast.rainStartSource)
     }
 
     @Test
@@ -198,6 +199,8 @@ class EcccWeatherParserTest {
         assertEquals(0.68, forecast.daily.first().rainfallInches, 0.0)
         assertTrue(forecast.daily.first().rainfallAmountAvailable)
         assertEquals(0.42f, forecast.precipitation24h.first().value, 0.0f)
+        assertEquals("Now", forecast.rainStartsIn)
+        assertTrue(forecast.isCurrentlyRaining())
     }
 
     @Test
@@ -275,5 +278,72 @@ class EcccWeatherParserTest {
         assertEquals(now + 2 * 60_000L, forecast.rainStartsAtEpochMillis)
         assertEquals(RainStartSource.ECCC_FORECAST, forecast.rainStartSource)
         assertEquals("2 minutes", forecast.rainStartsIn)
+    }
+
+    @Test
+    fun ecccCurrentGemAmountDoesNotClaimRainIsFallingUnderOvercastConditions() = runBlocking {
+        val now = 1_000_000L
+        val primaryHourly = listOf(
+            HourlyForecast(
+                time = "Now",
+                precipitationChance = 80,
+                rainfallInches = 0.0,
+                temperatureFahrenheit = 70,
+                windMph = 10,
+                windDirection = "E",
+                windDirectionLabel = "E",
+                condition = WeatherCondition.OVERCAST,
+                conditionLabel = "Overcast",
+                timeEpochMillis = now,
+                rainfallAmountAvailable = false,
+            ),
+            HourlyForecast(
+                time = "5 PM",
+                precipitationChance = 80,
+                rainfallInches = 0.0,
+                temperatureFahrenheit = 70,
+                windMph = 10,
+                windDirection = "E",
+                windDirectionLabel = "E",
+                condition = WeatherCondition.RAIN,
+                conditionLabel = "Rain",
+                timeEpochMillis = now + 60_000L,
+                rainfallAmountAvailable = false,
+            ),
+        )
+        val supplementalHourly = primaryHourly.map { hour ->
+            hour.copy(
+                rainfallInches = MINIMUM_RAIN_START_AMOUNT_INCHES * 2.0,
+                rainfallAmountAvailable = true,
+            )
+        }
+        val primaryForecast = DashboardForecastTestData.forecast.copy(
+            condition = WeatherCondition.OVERCAST,
+            conditionLabel = "Overcast",
+            currentPrecipitationInches = 0.0,
+            hourly = primaryHourly,
+            rainStartsAtEpochMillis = null,
+            rainStartSource = RainStartSource.NONE,
+        )
+        val supplementalForecast = primaryForecast.copy(
+            currentPrecipitationInches = MINIMUM_RAIN_START_AMOUNT_INCHES * 2.0,
+            hourly = supplementalHourly,
+        )
+        val client = EcccFirstWeatherClient(
+            primary = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(primaryForecast, "America/Toronto")
+            },
+            fallback = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(supplementalForecast, "America/Toronto")
+            },
+        )
+
+        val forecast = client.fetch(AustinLocation).forecast
+
+        assertEquals(now + 60_000L, forecast.rainStartsAtEpochMillis)
+        assertEquals("1 minute", forecast.rainStartsIn)
+        assertFalse(forecast.isCurrentlyRaining())
     }
 }

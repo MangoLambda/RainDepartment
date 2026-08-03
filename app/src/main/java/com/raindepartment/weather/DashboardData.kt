@@ -227,6 +227,15 @@ internal const val RADAR_MEANINGFUL_RATE_MM_PER_HOUR = 0.1
 internal const val RADAR_MODERATE_RATE_MM_PER_HOUR = 2.5
 internal const val RADAR_HEAVY_RATE_MM_PER_HOUR = 7.6
 
+internal fun WeatherCondition.isRainBearing(): Boolean = this in setOf(
+    WeatherCondition.DRIZZLE,
+    WeatherCondition.RAIN,
+    WeatherCondition.HEAVY_RAIN,
+    WeatherCondition.THUNDERSTORM,
+    WeatherCondition.SEVERE_WEATHER,
+    WeatherCondition.WINTRY_MIX,
+)
+
 internal fun hasMinimumRainStartAmount(rainfallInches: Double): Boolean =
     rainfallInches.isFinite() && rainfallInches >= MINIMUM_RAIN_START_AMOUNT_INCHES
 
@@ -251,18 +260,27 @@ internal fun DashboardForecast.rainStartMinutesFromNow(nowEpochMillis: Long): Lo
     }
 }
 
-internal fun DashboardForecast.rainStartCountdownText(nowEpochMillis: Long): String =
-    rainStartMinutesFromNow(nowEpochMillis)
-        ?.let { minutes ->
-            if (minutes == 0L) "Now" else formatRainStartCountdown(minutes)
-        }
-        ?: rainStartsIn
+internal fun DashboardForecast.rainStartCountdownText(nowEpochMillis: Long): String {
+    val minutes = rainStartMinutesFromNow(nowEpochMillis)
+    return when {
+        minutes == 0L -> if (isCurrentlyRaining(nowEpochMillis)) "Now" else "Soon"
+        minutes != null -> formatRainStartCountdown(minutes)
+        isCurrentlyRaining(nowEpochMillis) -> "Now"
+        else -> rainStartsIn.takeUnless { it.equals("Now", ignoreCase = true) } ?: "Soon"
+    }
+}
+
+internal fun DashboardForecast.isCurrentlyRaining(
+    nowEpochMillis: Long = System.currentTimeMillis(),
+): Boolean = condition.isRainBearing() &&
+    (rainStartsAtEpochMillis == null || rainStartsAtEpochMillis <= nowEpochMillis)
 
 internal fun DashboardForecast.widgetRainStartText(nowEpochMillis: Long): String? {
+    if (isCurrentlyRaining(nowEpochMillis)) return "Rain is falling now"
     val minutes = rainStartMinutesFromNow(nowEpochMillis) ?: return null
     if (minutes >= WIDGET_RAIN_START_BOTTOM_WINDOW_MINUTES) return null
     return if (minutes == 0L) {
-        "Rain is falling now"
+        "Rain expected soon"
     } else {
         "Rain will start in ${rainStartCountdownText(nowEpochMillis)}"
     }

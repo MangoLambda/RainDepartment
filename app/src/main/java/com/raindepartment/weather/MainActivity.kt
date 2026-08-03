@@ -3983,10 +3983,11 @@ private fun timelineRainMessage(
     forecast: DashboardForecast,
     nowEpochMillis: Long = System.currentTimeMillis(),
 ): String {
+    if (forecast.isCurrentlyRaining(nowEpochMillis)) return "Rain is falling now"
     val rainStartText = forecast.rainStartCountdownText(nowEpochMillis)
     return when {
         rainStartText.equals("No rain expected", ignoreCase = true) -> "No rain expected"
-        rainStartText.equals("Now", ignoreCase = true) -> "Rain is falling now"
+        rainStartText.equals("Soon", ignoreCase = true) -> "Rain expected soon"
         else -> "Rain begins in $rainStartText"
     }
 }
@@ -4272,10 +4273,10 @@ private fun WeatherHeroCard(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = if (rainStartText.equals("Now", ignoreCase = true)) {
-                            "Rain is falling"
-                        } else {
-                            "Rain starts in"
+                        text = when {
+                            forecast.isCurrentlyRaining(System.currentTimeMillis()) -> "Rain is falling"
+                            rainStartText.equals("Soon", ignoreCase = true) -> "Rain expected"
+                            else -> "Rain starts in"
                         },
                         color = Navy,
                         fontSize = 28.sp,

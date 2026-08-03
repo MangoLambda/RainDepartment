@@ -64,7 +64,11 @@ internal object RainNotificationManager {
             .setSmallIcon(R.drawable.ic_precipitation)
             .setContentTitle(
                 if (startsInMinutes == 0L) {
-                    "Rain is falling now"
+                    if (forecast.isCurrentlyRaining(nowEpochMillis)) {
+                        "Rain is falling now"
+                    } else {
+                        "Rain expected soon"
+                    }
                 } else {
                     "Rain starts in ${forecast.rainStartCountdownText(nowEpochMillis)}"
                 },

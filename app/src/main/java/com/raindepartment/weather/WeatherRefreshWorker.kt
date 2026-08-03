@@ -18,6 +18,7 @@ internal fun refreshCadenceMinutes(
 ): Long {
     val minutesUntilRain = forecast.rainStartMinutesFromNow(nowEpochMillis)
     return when {
+        forecast.isCurrentlyRaining(nowEpochMillis) -> 6L
         minutesUntilRain == null || minutesUntilRain > 180L -> 45L
         minutesUntilRain > 60L -> 12L
         else -> 6L

@@ -1,6 +1,7 @@
 package com.raindepartment.weather
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,6 +47,19 @@ class GemWeatherParserTest {
         assertEquals("No rain expected", forecast.rainStartsIn)
         assertEquals(null, forecast.rainStartsAtEpochMillis)
         assertEquals(RainStartSource.NONE, forecast.rainStartSource)
+    }
+
+    @Test
+    fun currentModelAmountDoesNotClaimRainIsFallingUnderOvercastConditions() {
+        val overcast = FIXTURE
+            .replace("\"weather_code\":2\n", "\"weather_code\":3\n")
+            .replace("\"precipitation\":0.0", "\"precipitation\":0.1")
+
+        val forecast = GemWeatherParser.parse(overcast, AustinLocation).forecast
+
+        assertEquals(WeatherCondition.OVERCAST, forecast.condition)
+        assertEquals("1h", forecast.rainStartsIn)
+        assertFalse(forecast.isCurrentlyRaining())
     }
 
     @Test

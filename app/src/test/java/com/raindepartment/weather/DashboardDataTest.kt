@@ -87,6 +87,8 @@ class DashboardDataTest {
     fun rainStartCountdownTextUsesTheTimestampInsteadOfAStaleFormattedValue() {
         val now = 1_000_000L
         val forecast = testForecast().copy(
+            condition = WeatherCondition.RAIN,
+            conditionLabel = "Rain",
             rainStartsIn = "1h",
             rainStartsAtEpochMillis = now + 32 * 60_000L,
             rainStartSource = RainStartSource.ECCC_RADAR,
@@ -100,10 +102,28 @@ class DashboardDataTest {
     fun widgetRainStartTextSaysWhenRainIsAlreadyFalling() {
         val now = 1_000_000L
         val forecast = testForecast().copy(
+            condition = WeatherCondition.RAIN,
+            conditionLabel = "Rain",
             rainStartsAtEpochMillis = now - 1L,
+            rainStartSource = RainStartSource.ECCC_RADAR,
         )
 
         assertEquals("Rain is falling now", forecast.widgetRainStartText(now))
+    }
+
+    @Test
+    fun modelTimestampDoesNotClaimRainIsFallingWhenCurrentConditionIsDry() {
+        val now = 1_000_000L
+        val forecast = testForecast().copy(
+            condition = WeatherCondition.OVERCAST,
+            conditionLabel = "Overcast",
+            rainStartsAtEpochMillis = now - 1L,
+            rainStartSource = RainStartSource.ECCC_FORECAST,
+        )
+
+        assertFalse(forecast.isCurrentlyRaining())
+        assertEquals("Soon", forecast.rainStartCountdownText(now))
+        assertEquals("Rain expected soon", forecast.widgetRainStartText(now))
     }
 
     @Test

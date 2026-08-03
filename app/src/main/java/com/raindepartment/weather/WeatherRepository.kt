@@ -2,7 +2,6 @@ package com.raindepartment.weather
 
 import android.content.Context
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -169,12 +168,13 @@ internal class WeatherRepository(
             null
         } ?: return forecast
 
-        if (!forecast.hasMinimumRainAmountNear(radarRainStart.startsAtEpochMillis)) {
+        val radarCondition = radarRainStart.currentRateMillimetersPerHour
+            ?.let(::radarConditionForRainRate)
+        val isCurrentRadarRain = radarCondition != null
+        if (!isCurrentRadarRain && !radarRainStart.confidenceMeaningful) {
             return forecast
         }
 
-        val radarCondition = radarRainStart.currentRateMillimetersPerHour
-            ?.let(::radarConditionForRainRate)
         val hourly = if (radarCondition == null) {
             forecast.hourly
         } else {
@@ -207,19 +207,6 @@ internal class WeatherRepository(
             rainStartSource = RainStartSource.ECCC_RADAR,
             rainStartConfidenceMeaningful = radarRainStart.confidenceMeaningful,
         )
-    }
-
-    private fun DashboardForecast.hasMinimumRainAmountNear(
-        startsAtEpochMillis: Long,
-    ): Boolean {
-        val nearestHour = hourly
-            .asSequence()
-            .mapNotNull { hour -> hour.timeEpochMillis?.let { it to hour } }
-            .minByOrNull { (timeEpochMillis, _) -> abs(timeEpochMillis - startsAtEpochMillis) }
-            ?: return false
-        return abs(nearestHour.first - startsAtEpochMillis) <= 60 * 60_000L &&
-            nearestHour.second.rainfallAmountAvailable &&
-            hasMinimumRainStartAmount(nearestHour.second.rainfallInches)
     }
 
     private fun isStale(snapshot: WeatherSnapshot?): Boolean = snapshot != null &&
