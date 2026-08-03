@@ -18,6 +18,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -55,12 +57,111 @@ internal class EcccFirstWeatherClient(
     private val primary: WeatherClient = HttpEcccCityPageWeatherClient(),
     private val fallback: WeatherClient = HttpGemWeatherClient(),
 ) : WeatherClient {
-    override suspend fun fetch(location: WeatherLocation): ParsedGemWeather = try {
-        primary.fetch(location)
+    override suspend fun fetch(location: WeatherLocation): ParsedGemWeather = coroutineScope {
+        val primaryResult = async { fetchSafely(primary, location) }
+        val supplementalResult = async { fetchSafely(fallback, location) }
+        val primaryForecast = primaryResult.await().getOrNull()
+        val supplementalForecast = supplementalResult.await().getOrNull()
+
+        if (primaryForecast != null) {
+            if (supplementalForecast == null) {
+                primaryForecast
+            } else {
+                primaryForecast.withGemPrecipitation(supplementalForecast)
+            }
+        } else {
+            supplementalResult.await().getOrThrow()
+        }
+    }
+
+    private suspend fun fetchSafely(
+        client: WeatherClient,
+        location: WeatherLocation,
+    ): Result<ParsedGemWeather> = try {
+        Result.success(client.fetch(location))
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (_: Exception) {
-        fallback.fetch(location)
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+}
+
+private const val GEM_HOURLY_MATCH_TOLERANCE_MILLIS = 45 * 60 * 1_000L
+
+private fun ParsedGemWeather.withGemPrecipitation(
+    supplemental: ParsedGemWeather,
+): ParsedGemWeather {
+    val forecast = forecast
+    val supplementalForecast = supplemental.forecast
+    val hourly = mergeHourlyPrecipitation(forecast.hourly, supplementalForecast.hourly)
+    val daily = forecast.daily.mapIndexed { index, day ->
+        val supplementalDay = supplementalForecast.daily.getOrNull(index)
+        val dayHourly = mergeHourlyPrecipitation(
+            day.hourly,
+            supplementalDay?.hourly.orEmpty(),
+        )
+        if (supplementalDay == null) {
+            day.copy(hourly = dayHourly)
+        } else {
+            day.copy(
+                rainfallInches = if (day.rainfallAmountAvailable) {
+                    day.rainfallInches
+                } else {
+                    supplementalDay.rainfallInches
+                },
+                rainfallAmountAvailable = day.rainfallAmountAvailable ||
+                    supplementalDay.rainfallAmountAvailable,
+                hourly = dayHourly,
+            )
+        }
+    }
+
+    return copy(
+        forecast = forecast.copy(
+            expectedRainInches = if (forecast.expectedRainAmountAvailable) {
+                forecast.expectedRainInches
+            } else {
+                supplementalForecast.expectedRainInches
+            },
+            expectedRainAmountAvailable = forecast.expectedRainAmountAvailable ||
+                supplementalForecast.expectedRainAmountAvailable,
+            hourly = hourly,
+            precipitation24h = if (forecast.precipitation24h.isNotEmpty()) {
+                forecast.precipitation24h
+            } else {
+                supplementalForecast.precipitation24h
+            },
+            daily = daily,
+            rainfallOutlook = if (forecast.rainfallOutlook.isNotEmpty()) {
+                forecast.rainfallOutlook
+            } else {
+                supplementalForecast.rainfallOutlook
+            },
+        ),
+    )
+}
+
+private fun mergeHourlyPrecipitation(
+    primary: List<HourlyForecast>,
+    supplemental: List<HourlyForecast>,
+): List<HourlyForecast> = primary.map { hour ->
+    if (hour.rainfallAmountAvailable) return@map hour
+    val primaryTimestamp = hour.timeEpochMillis ?: return@map hour
+    val match = supplemental
+        .asSequence()
+        .filter { it.rainfallAmountAvailable }
+        .mapNotNull { candidate ->
+            candidate.timeEpochMillis?.let { it to candidate }
+        }
+        .minByOrNull { (timestamp, _) -> abs(timestamp - primaryTimestamp) }
+        ?: return@map hour
+    if (abs(match.first - primaryTimestamp) > GEM_HOURLY_MATCH_TOLERANCE_MILLIS) {
+        hour
+    } else {
+        hour.copy(
+            rainfallInches = match.second.rainfallInches,
+            rainfallAmountAvailable = true,
+        )
     }
 }
 

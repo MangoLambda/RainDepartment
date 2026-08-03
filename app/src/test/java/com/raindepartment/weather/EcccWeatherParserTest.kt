@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 
 class EcccWeatherParserTest {
     @Test
@@ -119,5 +120,83 @@ class EcccWeatherParserTest {
         assertEquals(80, forecast.daily.first().precipitationChance)
         assertTrue(forecast.rainStartsAtEpochMillis != null)
         assertEquals(RainStartSource.ECCC_FORECAST, forecast.rainStartSource)
+    }
+
+    @Test
+    fun ecccForecastKeepsPrimaryWeatherAndUsesGemRainAmounts() = runBlocking {
+        val timestamp = 1_000_000L
+        val ecccHour = HourlyForecast(
+            time = "Now",
+            precipitationChance = 80,
+            rainfallInches = 0.0,
+            temperatureFahrenheit = 70,
+            windMph = 10,
+            windDirection = "E",
+            windDirectionLabel = "E",
+            condition = WeatherCondition.HEAVY_RAIN,
+            conditionLabel = "Heavy rain",
+            timeEpochMillis = timestamp,
+            rainfallAmountAvailable = false,
+        )
+        val gemHour = ecccHour.copy(
+            rainfallInches = 0.42,
+            rainfallAmountAvailable = true,
+            temperatureFahrenheit = 84,
+            condition = WeatherCondition.PARTLY_CLOUDY,
+            conditionLabel = "Partly cloudy",
+        )
+        val ecccDay = DashboardForecastTestData.forecast.daily.first().copy(
+            rainfallInches = 0.0,
+            rainfallAmountAvailable = false,
+            hourly = listOf(ecccHour),
+        )
+        val gemDay = ecccDay.copy(
+            rainfallInches = 0.68,
+            rainfallAmountAvailable = true,
+            hourly = listOf(gemHour),
+        )
+        val ecccForecast = DashboardForecastTestData.forecast.copy(
+            condition = WeatherCondition.HEAVY_RAIN,
+            conditionLabel = "Heavy rain",
+            currentFahrenheit = 70,
+            expectedRainInches = 0.0,
+            expectedRainAmountAvailable = false,
+            hourly = listOf(ecccHour),
+            precipitation24h = emptyList(),
+            daily = listOf(ecccDay),
+            rainfallOutlook = emptyList(),
+            source = ForecastSource.ECCC,
+        )
+        val gemForecast = DashboardForecastTestData.forecast.copy(
+            expectedRainInches = 0.68,
+            expectedRainAmountAvailable = true,
+            hourly = listOf(gemHour),
+            precipitation24h = listOf(ChartPoint("Now", 0.42f)),
+            daily = listOf(gemDay),
+            rainfallOutlook = listOf(ChartPoint("Today", 0.68f)),
+        )
+        val client = EcccFirstWeatherClient(
+            primary = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(ecccForecast, "America/Toronto")
+            },
+            fallback = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(gemForecast, "America/Toronto")
+            },
+        )
+
+        val forecast = client.fetch(AustinLocation).forecast
+
+        assertEquals(ForecastSource.ECCC, forecast.source)
+        assertEquals(WeatherCondition.HEAVY_RAIN, forecast.condition)
+        assertEquals(70, forecast.currentFahrenheit)
+        assertEquals(0.68, forecast.expectedRainInches, 0.0)
+        assertTrue(forecast.expectedRainAmountAvailable)
+        assertEquals(0.42, forecast.hourly.first().rainfallInches, 0.0)
+        assertTrue(forecast.hourly.first().rainfallAmountAvailable)
+        assertEquals(0.68, forecast.daily.first().rainfallInches, 0.0)
+        assertTrue(forecast.daily.first().rainfallAmountAvailable)
+        assertEquals(0.42f, forecast.precipitation24h.first().value, 0.0f)
     }
 }
