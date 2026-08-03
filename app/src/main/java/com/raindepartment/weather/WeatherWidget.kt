@@ -157,7 +157,9 @@ private fun WeatherWidgetContent(
     backplate: androidx.glance.ImageProvider,
     isStale: Boolean,
 ) {
-    val radarRainStartText = forecast.radarRainStartText(System.currentTimeMillis())
+    val nowEpochMillis = System.currentTimeMillis()
+    val radarRainStartText = forecast.radarRainStartText(nowEpochMillis)
+    val rainStartCountdownText = forecast.rainStartCountdownText(nowEpochMillis)
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
@@ -258,7 +260,7 @@ private fun WeatherWidgetContent(
                                 if (radarRainStartText == null) {
                                     Spacer(modifier = GlanceModifier.width(3.dp))
                                     Text(
-                                        text = "·  ${forecast.rainStartsIn}",
+                                        text = "·  $rainStartCountdownText",
                                         style = TextStyle(
                                             color = WidgetWhite,
                                             fontSize = 11.sp,

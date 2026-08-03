@@ -244,6 +244,11 @@ internal fun DashboardForecast.rainStartMinutesFromNow(nowEpochMillis: Long): Lo
     }
 }
 
+internal fun DashboardForecast.rainStartCountdownText(nowEpochMillis: Long): String =
+    rainStartMinutesFromNow(nowEpochMillis)
+        ?.let(::formatRainStartCountdown)
+        ?: rainStartsIn
+
 internal fun DashboardForecast.isRadarRainStartWithinWindow(nowEpochMillis: Long): Boolean {
     return rainStartSource == RainStartSource.ECCC_RADAR &&
         rainStartMinutesFromNow(nowEpochMillis)?.let { it <= RADAR_RAIN_WINDOW_MINUTES } == true
@@ -255,7 +260,7 @@ internal fun DashboardForecast.radarRainStartText(nowEpochMillis: Long): String?
     return if (minutes == 0L) {
         "rain is falling now"
     } else {
-        "rain starts, in ${formatRainStartCountdown(minutes)}"
+        "rain starts, in ${rainStartCountdownText(nowEpochMillis)}"
     }
 }
 

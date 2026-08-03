@@ -66,7 +66,7 @@ internal object RainNotificationManager {
                 if (startsInMinutes == 0L) {
                     "Rain is falling now"
                 } else {
-                    "Rain starts in ${formatRainStartCountdown(startsInMinutes)}"
+                    "Rain starts in ${forecast.rainStartCountdownText(nowEpochMillis)}"
                 },
             )
             .setContentText("${forecast.location} · ECCC radar nowcast is meaningful")

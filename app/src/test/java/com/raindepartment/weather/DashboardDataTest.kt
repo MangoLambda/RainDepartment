@@ -74,6 +74,18 @@ class DashboardDataTest {
     }
 
     @Test
+    fun rainStartCountdownTextUsesTheTimestampInsteadOfAStaleFormattedValue() {
+        val now = 1_000_000L
+        val forecast = testForecast().copy(
+            rainStartsIn = "1h",
+            rainStartsAtEpochMillis = now + 32 * 60_000L,
+            rainStartSource = RainStartSource.ECCC_RADAR,
+        )
+
+        assertEquals("32 minutes", forecast.rainStartCountdownText(now))
+    }
+
+    @Test
     fun radarRainStartTextSaysWhenRainIsAlreadyFalling() {
         val now = 1_000_000L
         val forecast = testForecast().copy(

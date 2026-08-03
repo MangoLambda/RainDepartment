@@ -45,7 +45,10 @@ internal class SharedPreferencesWeatherCache(context: Context) : WeatherCache {
         ?.let(WeatherSnapshotCodec::decode)
 
     override fun write(snapshot: WeatherSnapshot) {
-        preferences.edit().putString(CACHE_KEY, WeatherSnapshotCodec.encode(snapshot)).apply()
+        // The widget is refreshed immediately after a worker writes the snapshot. A synchronous
+        // commit keeps that refresh from rendering the previous rain-start value while the async
+        // SharedPreferences disk write is still pending.
+        preferences.edit().putString(CACHE_KEY, WeatherSnapshotCodec.encode(snapshot)).commit()
     }
 
     private companion object {
