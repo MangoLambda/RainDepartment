@@ -244,6 +244,48 @@ class WeatherRepositoryTest {
         assertEquals("Heavy rain", forecast.hourly.first().conditionLabel)
     }
 
+    @Test
+    fun radarStillRunsWhenForecastHasNoModelRainStart() = runBlocking {
+        val now = 10_000L
+        var radarCalls = 0
+        val repository = WeatherRepository(
+            client = object : GemWeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(
+                        DashboardForecastTestData.forecast.copy(
+                            rainStartsAtEpochMillis = null,
+                            rainStartSource = RainStartSource.NONE,
+                        ),
+                        "America/Chicago",
+                    )
+            },
+            cache = FakeCache(),
+            locationProvider = FakeLocationProvider(),
+            clock = { now },
+            radarClient = object : EcccRadarClient {
+                override suspend fun findRainStart(
+                    location: WeatherLocation,
+                    nowEpochMillis: Long,
+                ): EcccRadarRainStart {
+                    radarCalls += 1
+                    return EcccRadarRainStart(
+                        startsAtEpochMillis = now + 6 * 60_000L,
+                        confidenceMeaningful = true,
+                    )
+                }
+            },
+        )
+
+        val result = repository.refresh(force = true)
+
+        assertTrue(result is RefreshResult.Updated)
+        assertEquals(1, radarCalls)
+        assertEquals(
+            RainStartSource.ECCC_RADAR,
+            repository.state.value.snapshot?.forecast?.rainStartSource,
+        )
+    }
+
     private class FakeCache(var value: WeatherSnapshot? = null) : WeatherCache {
         override fun read(): WeatherSnapshot? = value
         override fun write(snapshot: WeatherSnapshot) {

@@ -28,6 +28,8 @@ internal data class HourlyForecast(
     val condition: WeatherCondition = WeatherCondition.OVERCAST,
     val conditionLabel: String = "Overcast",
     val timeEpochMillis: Long? = null,
+    val rainfallAmountAvailable: Boolean = true,
+    val precipitationChanceAvailable: Boolean = true,
 )
 
 internal data class DailyForecast(
@@ -45,6 +47,8 @@ internal data class DailyForecast(
     val peakWindTime: String = "",
     val dryWindow: String = "",
     val hourly: List<HourlyForecast> = emptyList(),
+    val rainfallAmountAvailable: Boolean = true,
+    val precipitationChanceAvailable: Boolean = true,
 )
 
 internal data class ChartPoint(
@@ -55,7 +59,13 @@ internal data class ChartPoint(
 internal enum class RainStartSource {
     NONE,
     MODEL,
+    ECCC_FORECAST,
     ECCC_RADAR,
+}
+
+internal enum class ForecastSource {
+    ECCC,
+    GEM,
 }
 
 internal data class DashboardForecast(
@@ -85,6 +95,9 @@ internal data class DashboardForecast(
     val rainStartsAtEpochMillis: Long? = null,
     val rainStartSource: RainStartSource = RainStartSource.NONE,
     val rainStartConfidenceMeaningful: Boolean = false,
+    val expectedRainAmountAvailable: Boolean = true,
+    val source: ForecastSource = ForecastSource.GEM,
+    val precipitationChanceAvailable: Boolean = true,
 )
 
 internal data class WeatherLocation(
@@ -162,6 +175,22 @@ internal fun DashboardForecast.precipitation(valueInches: Double, unitSystem: Un
             }
         }
     }
+}
+
+internal fun DashboardForecast.precipitationOrUnavailable(
+    valueInches: Double,
+    unitSystem: UnitSystem,
+    available: Boolean,
+): String = if (available) {
+    precipitation(valueInches, unitSystem)
+} else {
+    "—"
+}
+
+internal fun chanceOrUnavailable(value: Int, available: Boolean): String = if (available) {
+    "$value%"
+} else {
+    "—"
 }
 
 internal fun DashboardForecast.windSpeed(valueMph: Int, unitSystem: UnitSystem): String {

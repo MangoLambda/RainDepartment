@@ -2925,7 +2925,7 @@ private fun TimelineScreen(
         }
 
         item(key = "timeline-attribution") {
-            OpenMeteoAttribution()
+            WeatherAttribution(forecast.source)
         }
     }
 }
@@ -3023,7 +3023,10 @@ private fun TimelineSummaryCard(
                 TimelineSummaryMetric(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.WaterDrop,
-                    value = "${forecast.precipitationChance}%",
+                    value = chanceOrUnavailable(
+                        forecast.precipitationChance,
+                        forecast.precipitationChanceAvailable,
+                    ),
                     label = "Chance of Rain",
                     tint = AccentBlue,
                 )
@@ -3031,7 +3034,11 @@ private fun TimelineSummaryCard(
                 TimelineSummaryMetric(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.WaterDrop,
-                    value = forecast.precipitation(forecast.expectedRainInches, unitSystem),
+                    value = forecast.precipitationOrUnavailable(
+                        forecast.expectedRainInches,
+                        unitSystem,
+                        forecast.expectedRainAmountAvailable,
+                    ),
                     label = "Expected Rain",
                     tint = AccentBlue,
                 )
@@ -3309,11 +3316,18 @@ private fun TimelineHourItem(
                     ) {
                         TimelineMiniMetric(
                             icon = Icons.Outlined.WaterDrop,
-                            value = "${hour.precipitationChance}%",
+                            value = chanceOrUnavailable(
+                                hour.precipitationChance,
+                                hour.precipitationChanceAvailable,
+                            ),
                             tint = AccentBlue,
                         )
                         Text(
-                            text = forecast.precipitation(hour.rainfallInches, unitSystem),
+                            text = forecast.precipitationOrUnavailable(
+                                hour.rainfallInches,
+                                unitSystem,
+                                hour.rainfallAmountAvailable,
+                            ),
                             color = DeepBlue,
                             fontSize = 9.sp,
                             maxLines = 1,
@@ -3408,7 +3422,10 @@ private fun TimelineExpandedDetails(
             TimelineDetailMetric(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Outlined.WaterDrop,
-                value = "${hour.precipitationChance}%",
+                value = chanceOrUnavailable(
+                    hour.precipitationChance,
+                    hour.precipitationChanceAvailable,
+                ),
                 label = "Chance of Rain",
                 tint = AccentBlue,
             )
@@ -3416,7 +3433,11 @@ private fun TimelineExpandedDetails(
             TimelineDetailMetric(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Outlined.WaterDrop,
-                value = forecast.precipitation(hour.rainfallInches, unitSystem),
+                value = forecast.precipitationOrUnavailable(
+                    hour.rainfallInches,
+                    unitSystem,
+                    hour.rainfallAmountAvailable,
+                ),
                 label = "Rain Amount",
                 tint = AccentBlue,
             )
@@ -4168,7 +4189,7 @@ private fun timelineForecastIntensityPoints(
     hourly: List<HourlyForecast>,
     selectedIndex: Int,
 ): List<TimelineIntensityPoint> {
-    if (hourly.isEmpty()) return emptyList()
+    if (hourly.isEmpty() || hourly.any { !it.rainfallAmountAvailable }) return emptyList()
     val start = (selectedIndex - 1).coerceAtLeast(0)
     val end = (selectedIndex + 1).coerceAtMost(hourly.lastIndex)
     return hourly.subList(start, end + 1).map { hour ->
@@ -4293,7 +4314,7 @@ private fun BriefingContent(
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
-        OpenMeteoAttribution()
+            WeatherAttribution(forecast.source)
     }
 }
 
@@ -4326,7 +4347,7 @@ private fun BriefingUnavailableScreen(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = errorMessage ?: "Open-Meteo data will appear here after the first refresh.",
+            text = errorMessage ?: "Weather data will appear here after the first refresh.",
             color = MutedNavy,
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
@@ -4339,7 +4360,7 @@ private fun BriefingUnavailableScreen(
             fontWeight = FontWeight.Bold,
         )
         Spacer(modifier = Modifier.height(18.dp))
-        OpenMeteoAttribution()
+        WeatherAttribution()
     }
 }
 
@@ -4382,11 +4403,21 @@ private fun WeatherStatusBanner(
 }
 
 @Composable
-private fun OpenMeteoAttribution() {
+private fun WeatherAttribution(source: ForecastSource = ForecastSource.ECCC) {
     val uriHandler = LocalUriHandler.current
-    TextButton(onClick = { uriHandler.openUri("https://open-meteo.com/") }) {
+    val uri = if (source == ForecastSource.ECCC) {
+        "https://weather.gc.ca/"
+    } else {
+        "https://open-meteo.com/"
+    }
+    val label = if (source == ForecastSource.ECCC) {
+        "Weather data by Environment and Climate Change Canada · ECCC"
+    } else {
+        "Weather data by Open-Meteo.com · GEM Canada"
+    }
+    TextButton(onClick = { uriHandler.openUri(uri) }) {
         Text(
-            text = "Weather data by Open-Meteo.com · GEM Canada",
+            text = label,
             color = MutedNavy,
             fontSize = 10.sp,
         )
@@ -4545,14 +4576,21 @@ private fun WeatherHeroCard(
                 HeroMetric(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.WaterDrop,
-                    value = "${forecast.precipitationChance}%",
+                    value = chanceOrUnavailable(
+                        forecast.precipitationChance,
+                        forecast.precipitationChanceAvailable,
+                    ),
                     label = "Chance of Rain",
                 )
                 MetricDivider()
                 HeroMetric(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.WaterDrop,
-                    value = forecast.precipitation(forecast.expectedRainInches, unitSystem),
+                    value = forecast.precipitationOrUnavailable(
+                        forecast.expectedRainInches,
+                        unitSystem,
+                        forecast.expectedRainAmountAvailable,
+                    ),
                     label = "Expected Rain",
                 )
                 MetricDivider()
@@ -4731,7 +4769,9 @@ private fun DailyForecastDetailContent(
         lowFahrenheit = day.lowFahrenheit,
         conditionLabel = day.conditionLabel,
         precipitationChance = day.precipitationChance,
+        precipitationChanceAvailable = day.precipitationChanceAvailable,
         expectedRainInches = day.rainfallInches,
+        expectedRainAmountAvailable = day.rainfallAmountAvailable,
         peakWindMph = peakWindMph,
         peakWindDirection = peakWindDirection,
         peakWindTime = day.peakWindTime.ifBlank { forecast.peakWindTime },
@@ -4983,14 +5023,21 @@ private fun DailyWeatherHeroCard(
                 HeroMetric(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.WaterDrop,
-                    value = "${day.precipitationChance}%",
+                    value = chanceOrUnavailable(
+                        day.precipitationChance,
+                        day.precipitationChanceAvailable,
+                    ),
                     label = "Chance of Rain",
                 )
                 MetricDivider()
                 HeroMetric(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.WaterDrop,
-                    value = forecast.precipitation(day.rainfallInches, unitSystem),
+                    value = forecast.precipitationOrUnavailable(
+                        day.rainfallInches,
+                        unitSystem,
+                        day.rainfallAmountAvailable,
+                    ),
                     label = "Total Rain",
                 )
                 MetricDivider()
@@ -5016,34 +5063,42 @@ private fun DailyPrecipitationCard(
     DashboardCard(modifier = modifier) {
         SectionHeader(title = "Precipitation by Hour", action = "All day", icon = Icons.Outlined.WaterDrop)
         Spacer(modifier = Modifier.height(5.dp))
-        AreaChart(
-            points = hourlyChartPoints(hourly) { it.rainfallInches.toFloat() },
-            lineColor = ChartBlue,
-            fillColor = ChartBlue.copy(alpha = 0.25f),
-            maxValue = max(0.1f, hourly.maxOfOrNull { it.rainfallInches.toFloat() } ?: 0.1f),
-        )
-        Spacer(modifier = Modifier.height(3.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Outlined.WaterDrop,
-                contentDescription = null,
-                tint = AccentBlue,
-                modifier = Modifier.size(22.dp),
+        if (day.rainfallAmountAvailable && hourly.all { it.rainfallAmountAvailable }) {
+            AreaChart(
+                points = hourlyChartPoints(hourly) { it.rainfallInches.toFloat() },
+                lineColor = ChartBlue,
+                fillColor = ChartBlue.copy(alpha = 0.25f),
+                maxValue = max(0.1f, hourly.maxOfOrNull { it.rainfallInches.toFloat() } ?: 0.1f),
             )
-            Spacer(modifier = Modifier.width(5.dp))
-            Column {
-                Text(
-                    text = "${forecast.precipitation(day.rainfallInches, unitSystem)} total",
-                    color = DeepBlue,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.WaterDrop,
+                    contentDescription = null,
+                    tint = AccentBlue,
+                    modifier = Modifier.size(22.dp),
                 )
-                Text(
-                    text = "Expected throughout the day",
-                    color = MutedNavy,
-                    fontSize = 10.sp,
-                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Column {
+                    Text(
+                        text = "${forecast.precipitation(day.rainfallInches, unitSystem)} total",
+                        color = DeepBlue,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Expected throughout the day",
+                        color = MutedNavy,
+                        fontSize = 10.sp,
+                    )
+                }
             }
+        } else {
+            Text(
+                text = "ECCC does not publish hourly rainfall amounts.",
+                color = MutedNavy,
+                fontSize = 11.sp,
+            )
         }
     }
 }
@@ -5119,6 +5174,7 @@ private fun SevenDaySummaryCard(
     }
     val averageHigh = days.map { it.highFahrenheit }.average().roundToInt()
     val averageLow = days.map { it.lowFahrenheit }.average().roundToInt()
+    val rainfallAmountsAvailable = days.isNotEmpty() && days.all { it.rainfallAmountAvailable }
     val totalRain = days.sumOf { it.rainfallInches }
     val representativeCondition = days
         .groupingBy { it.condition }
@@ -5240,7 +5296,11 @@ private fun SevenDaySummaryCard(
                     SevenDaySummaryMetric(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Outlined.WaterDrop,
-                        value = forecast.precipitation(totalRain, unitSystem),
+                        value = if (rainfallAmountsAvailable) {
+                            forecast.precipitation(totalRain, unitSystem)
+                        } else {
+                            "—"
+                        },
                         label = "Total precipitation",
                     )
                 }
@@ -5356,7 +5416,10 @@ private fun SevenDayDailyStrip(
                             modifier = Modifier.size(13.dp),
                         )
                         Text(
-                            text = "${day.precipitationChance}%",
+                            text = chanceOrUnavailable(
+                                day.precipitationChance,
+                                day.precipitationChanceAvailable,
+                            ),
                             color = MutedNavy,
                             fontSize = 9.sp,
                         )
@@ -5382,16 +5445,24 @@ private fun SevenDayPrecipitationCard(
             action = if (unitSystem == UnitSystem.IMPERIAL) "in" else "mm",
             icon = Icons.Outlined.WaterDrop,
         )
-        Text(
-            text = "Total: ${forecast.precipitation(days.sumOf { it.rainfallInches }, unitSystem)}",
-            color = MutedNavy,
-            fontSize = 10.sp,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        BarChart(
-            points = points,
-            valueLabel = { forecast.precipitation(it.toDouble(), unitSystem).substringBefore(' ') },
-        )
+        if (days.all { it.rainfallAmountAvailable }) {
+            Text(
+                text = "Total: ${forecast.precipitation(days.sumOf { it.rainfallInches }, unitSystem)}",
+                color = MutedNavy,
+                fontSize = 10.sp,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            BarChart(
+                points = points,
+                valueLabel = { forecast.precipitation(it.toDouble(), unitSystem).substringBefore(' ') },
+            )
+        } else {
+            Text(
+                text = "ECCC does not publish daily rainfall amounts in this forecast.",
+                color = MutedNavy,
+                fontSize = 11.sp,
+            )
+        }
     }
 }
 
@@ -5405,7 +5476,12 @@ private fun SevenDayInsightsCard(
         compareBy<DailyForecast> { it.precipitationChance }
             .thenBy { it.rainfallInches },
     ) ?: days.first()
-    val wettestDay = days.maxByOrNull { it.rainfallInches } ?: days.first()
+    val rainfallAmountsAvailable = days.isNotEmpty() && days.all { it.rainfallAmountAvailable }
+    val wettestDay = if (rainfallAmountsAvailable) {
+        days.maxByOrNull { it.rainfallInches } ?: days.first()
+    } else {
+        days.maxByOrNull { it.precipitationChance } ?: days.first()
+    }
 
     DashboardCard(modifier = Modifier.fillMaxWidth()) {
         SectionHeader(title = "7-Day Insights", icon = Icons.Outlined.WbSunny)
@@ -5420,16 +5496,23 @@ private fun SevenDayInsightsCard(
                 tint = Color(0xFF5AB867),
                 title = "Best outdoor day",
                 value = bestDay.day,
-                detail = "${bestDay.precipitationChance}% chance of rain",
+                detail = "${chanceOrUnavailable(bestDay.precipitationChance, bestDay.precipitationChanceAvailable)} chance of rain",
             )
             SevenDayInsightDivider()
             SevenDayInsight(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Outlined.WaterDrop,
                 tint = ChartBlue,
-                title = "Heaviest rain day",
+                title = if (rainfallAmountsAvailable) "Heaviest rain day" else "Highest rain chance",
                 value = wettestDay.day,
-                detail = forecast.precipitation(wettestDay.rainfallInches, unitSystem),
+                detail = if (rainfallAmountsAvailable) {
+                    forecast.precipitation(wettestDay.rainfallInches, unitSystem)
+                } else {
+                    chanceOrUnavailable(
+                        wettestDay.precipitationChance,
+                        wettestDay.precipitationChanceAvailable,
+                    )
+                },
             )
             SevenDayInsightDivider()
             SevenDayInsight(
@@ -5504,7 +5587,10 @@ private fun SevenDayInsightDivider() {
 }
 
 private fun sevenDayHeadline(days: List<DailyForecast>): String {
-    val rainyDays = days.count { it.precipitationChance >= 50 || it.rainfallInches > 0.1 }
+    val rainyDays = days.count {
+        (it.precipitationChanceAvailable && it.precipitationChance >= 50) ||
+            (it.rainfallAmountAvailable && it.rainfallInches > 0.1)
+    }
     return when {
         rainyDays >= (days.size * 0.6f).coerceAtLeast(1f) -> "Rainy days ahead"
         rainyDays >= 2 -> "Mixed sun & showers"
@@ -5513,7 +5599,10 @@ private fun sevenDayHeadline(days: List<DailyForecast>): String {
 }
 
 private fun sevenDaySummary(days: List<DailyForecast>): String {
-    val rainyDays = days.count { it.precipitationChance >= 50 || it.rainfallInches > 0.1 }
+    val rainyDays = days.count {
+        (it.precipitationChanceAvailable && it.precipitationChance >= 50) ||
+            (it.rainfallAmountAvailable && it.rainfallInches > 0.1)
+    }
     return when {
         rainyDays >= 3 -> "Variable precipitation with a few wetter days."
         rainyDays > 0 -> "A mix of sunshine and occasional showers."
@@ -5528,17 +5617,30 @@ private fun HourlyForecastCard(
     title: String = "Hourly Precipitation, Temperature & Wind",
     action: String = "Next 24 Hours",
 ) {
+    val rainfallAmountsAvailable = hourly.isNotEmpty() && hourly.all { it.rainfallAmountAvailable }
     DashboardCard(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(title = title, action = action)
+        SectionHeader(
+            title = if (rainfallAmountsAvailable) title else "Hourly Forecast · Temperature & Wind",
+            action = action,
+        )
         Spacer(modifier = Modifier.height(8.dp))
         Column(modifier = Modifier.horizontalScroll(rememberScrollState())) {
             HourlyHeaderRow(hourly)
             HourlyChanceRow(hourly)
-            HourlyValueRow(
-                label = "Rainfall\n(${if (unitSystem == UnitSystem.IMPERIAL) "in" else "mm"})",
-                values = hourly.map { it.rainfallInches.toRainValue(unitSystem) },
-                color = AccentBlue,
-            )
+            if (rainfallAmountsAvailable) {
+                HourlyValueRow(
+                    label = "Rainfall\n(${if (unitSystem == UnitSystem.IMPERIAL) "in" else "mm"})",
+                    values = hourly.map { it.rainfallInches.toRainValue(unitSystem) },
+                    color = AccentBlue,
+                )
+            } else {
+                Text(
+                    text = "ECCC does not publish hourly rainfall amounts.",
+                    modifier = Modifier.padding(vertical = 5.dp),
+                    color = MutedNavy,
+                    fontSize = 9.sp,
+                )
+            }
             HourlyValueRow(
                 label = "Temp\n(${unitSystem.temperatureUnitLabel()})",
                 values = hourly.map { it.temperature(unitSystem) },
@@ -5582,7 +5684,10 @@ private fun HourlyChanceRow(hourly: List<HourlyForecast>) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "${item.precipitationChance}%",
+                    text = chanceOrUnavailable(
+                        item.precipitationChance,
+                        item.precipitationChanceAvailable,
+                    ),
                     color = AccentBlue,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -5596,7 +5701,13 @@ private fun HourlyChanceRow(hourly: List<HourlyForecast>) {
                     Box(
                         modifier = Modifier
                             .width(27.dp)
-                            .height((4 + item.precipitationChance * 0.32f).dp)
+                        .height(
+                            (if (item.precipitationChanceAvailable) {
+                                4 + item.precipitationChance * 0.32f
+                            } else {
+                                4f
+                            }).dp,
+                        )
                             .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
                             .background(AccentBlue.copy(alpha = 0.88f)),
                     )
@@ -5734,34 +5845,42 @@ private fun PrecipitationCard(
     DashboardCard(modifier = modifier) {
         SectionHeader(title = "Precipitation Next 24h", action = "Next 24 Hours", icon = Icons.Outlined.WaterDrop)
         Spacer(modifier = Modifier.height(5.dp))
-        AreaChart(
-            points = forecast.precipitation24h,
-            lineColor = ChartBlue,
-            fillColor = ChartBlue.copy(alpha = 0.25f),
-            maxValue = max(0.1f, forecast.precipitation24h.maxOfOrNull { it.value } ?: 0.1f),
-        )
-        Spacer(modifier = Modifier.height(3.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Outlined.WaterDrop,
-                contentDescription = null,
-                tint = AccentBlue,
-                modifier = Modifier.size(22.dp),
+        if (forecast.expectedRainAmountAvailable && forecast.precipitation24h.isNotEmpty()) {
+            AreaChart(
+                points = forecast.precipitation24h,
+                lineColor = ChartBlue,
+                fillColor = ChartBlue.copy(alpha = 0.25f),
+                maxValue = max(0.1f, forecast.precipitation24h.maxOfOrNull { it.value } ?: 0.1f),
             )
-            Spacer(modifier = Modifier.width(5.dp))
-            Column {
-                Text(
-                    text = "${forecast.precipitation(forecast.expectedRainInches, unitSystem)} total",
-                    color = DeepBlue,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.WaterDrop,
+                    contentDescription = null,
+                    tint = AccentBlue,
+                    modifier = Modifier.size(22.dp),
                 )
-                Text(
-                    text = "Expected total through tomorrow",
-                    color = MutedNavy,
-                    fontSize = 10.sp,
-                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Column {
+                    Text(
+                        text = "${forecast.precipitation(forecast.expectedRainInches, unitSystem)} total",
+                        color = DeepBlue,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Expected total through tomorrow",
+                        color = MutedNavy,
+                        fontSize = 10.sp,
+                    )
+                }
             }
+        } else {
+            Text(
+                text = "ECCC does not publish hourly rainfall amounts.",
+                color = MutedNavy,
+                fontSize = 11.sp,
+            )
         }
     }
 }
@@ -5846,7 +5965,12 @@ private fun SevenDayForecastCard(
                     lineHeight = 10.sp,
                 )
                 Text(
-                    text = "${day.precipitationChance}%  ${forecast.precipitation(day.rainfallInches, unitSystem)}",
+                    text = "${chanceOrUnavailable(day.precipitationChance, day.precipitationChanceAvailable)}  " +
+                        forecast.precipitationOrUnavailable(
+                            day.rainfallInches,
+                            unitSystem,
+                            day.rainfallAmountAvailable,
+                        ),
                     modifier = Modifier.widthIn(min = 62.dp),
                     color = AccentBlue,
                     fontSize = 8.sp,
@@ -5882,10 +6006,18 @@ private fun RainfallOutlookCard(
     DashboardCard(modifier = modifier) {
         SectionHeader(title = "Rainfall Outlook", action = "Next 7 Days", icon = Icons.Outlined.Air)
         Spacer(modifier = Modifier.height(4.dp))
-        BarChart(
-            points = forecast.rainfallOutlook,
-            valueLabel = { forecast.precipitation(it.toDouble(), unitSystem).substringBefore(' ') },
-        )
+        if (forecast.expectedRainAmountAvailable && forecast.rainfallOutlook.isNotEmpty()) {
+            BarChart(
+                points = forecast.rainfallOutlook,
+                valueLabel = { forecast.precipitation(it.toDouble(), unitSystem).substringBefore(' ') },
+            )
+        } else {
+            Text(
+                text = "ECCC does not publish daily rainfall amounts in this forecast.",
+                color = MutedNavy,
+                fontSize = 11.sp,
+            )
+        }
     }
 }
 
@@ -6198,7 +6330,7 @@ private fun SettingsScreen(
             Spacer(modifier = Modifier.height(10.dp))
             WeatherPreviewCard(weather = weather, unitSystem = unitSystem)
         }
-        OpenMeteoAttribution()
+        WeatherAttribution()
     }
 }
 

@@ -25,9 +25,11 @@ internal data class ParsedGemWeather(
     val timezone: String,
 )
 
-internal interface GemWeatherClient {
+internal interface WeatherClient {
     suspend fun fetch(location: WeatherLocation): ParsedGemWeather
 }
+
+internal interface GemWeatherClient : WeatherClient
 
 internal class GemHttpException(
     val statusCode: Int,

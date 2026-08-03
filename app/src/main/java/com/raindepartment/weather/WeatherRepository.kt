@@ -55,7 +55,7 @@ internal class SharedPreferencesWeatherCache(context: Context) : WeatherCache {
 }
 
 internal class WeatherRepository(
-    private val client: GemWeatherClient,
+    private val client: WeatherClient,
     private val cache: WeatherCache,
     private val locationProvider: WeatherLocationProvider,
     private val preferredLocation: () -> WeatherLocation? = { null },
@@ -142,13 +142,6 @@ internal class WeatherRepository(
         location: WeatherLocation,
         nowEpochMillis: Long,
     ): DashboardForecast {
-        val modelRainStart = forecast.rainStartsAtEpochMillis
-        if (modelRainStart == null ||
-            modelRainStart > nowEpochMillis + RADAR_RAIN_WINDOW_MINUTES * 60_000L
-        ) {
-            return forecast
-        }
-
         val radarRainStart = try {
             radarClient.findRainStart(location, nowEpochMillis)
         } catch (cancelled: CancellationException) {
@@ -224,7 +217,7 @@ private class LocationUnavailableException : IllegalStateException(
 
 internal object WeatherRepositoryFactory {
     fun create(context: Context): WeatherRepository = WeatherRepository(
-        client = HttpGemWeatherClient(),
+        client = EcccFirstWeatherClient(),
         radarClient = HttpEcccRadarClient(
             cache = FileEcccRadarMapCache(context.applicationContext),
         ),
@@ -235,7 +228,7 @@ internal object WeatherRepositoryFactory {
 }
 
 internal object WeatherSnapshotCodec {
-    private const val VERSION = 2
+    private const val VERSION = 3
 
     fun encode(snapshot: WeatherSnapshot): String = JSONObject().apply {
         put("version", VERSION)
@@ -289,7 +282,9 @@ internal object WeatherSnapshotCodec {
                     put("condition", item.condition.name)
                     put("conditionLabel", item.conditionLabel)
                     put("precipitationChance", item.precipitationChance)
+                    put("precipitationChanceAvailable", item.precipitationChanceAvailable)
                     put("rainfallInches", item.rainfallInches)
+                    put("rainfallAmountAvailable", item.rainfallAmountAvailable)
                     put("highFahrenheit", item.highFahrenheit)
                     put("lowFahrenheit", item.lowFahrenheit)
                     put("sunrise", item.sunrise)
@@ -309,6 +304,9 @@ internal object WeatherSnapshotCodec {
         put("rainStartsAtEpochMillis", forecast.rainStartsAtEpochMillis)
         put("rainStartSource", forecast.rainStartSource.name)
         put("rainStartConfidenceMeaningful", forecast.rainStartConfidenceMeaningful)
+        put("expectedRainAmountAvailable", forecast.expectedRainAmountAvailable)
+        put("source", forecast.source.name)
+        put("precipitationChanceAvailable", forecast.precipitationChanceAvailable)
     }
 
     private fun encodeChart(points: List<ChartPoint>): JSONArray = JSONArray().apply {
@@ -349,6 +347,11 @@ internal object WeatherSnapshotCodec {
             RainStartSource.valueOf(root.optString("rainStartSource"))
         }.getOrDefault(RainStartSource.NONE),
         rainStartConfidenceMeaningful = root.optBoolean("rainStartConfidenceMeaningful", false),
+        expectedRainAmountAvailable = root.optBoolean("expectedRainAmountAvailable", true),
+        source = runCatching {
+            ForecastSource.valueOf(root.optString("source"))
+        }.getOrDefault(ForecastSource.GEM),
+        precipitationChanceAvailable = root.optBoolean("precipitationChanceAvailable", true),
     )
 
     private fun encodeHourly(hourly: List<HourlyForecast>): JSONArray = JSONArray().apply {
@@ -356,7 +359,9 @@ internal object WeatherSnapshotCodec {
             put(JSONObject().apply {
                 put("time", item.time)
                 put("precipitationChance", item.precipitationChance)
+                put("precipitationChanceAvailable", item.precipitationChanceAvailable)
                 put("rainfallInches", item.rainfallInches)
+                put("rainfallAmountAvailable", item.rainfallAmountAvailable)
                 put("temperatureFahrenheit", item.temperatureFahrenheit)
                 put("windMph", item.windMph)
                 put("windDirection", item.windDirection)
@@ -375,7 +380,9 @@ internal object WeatherSnapshotCodec {
                 HourlyForecast(
                     time = root.getString("time"),
                     precipitationChance = root.getInt("precipitationChance"),
+                    precipitationChanceAvailable = root.optBoolean("precipitationChanceAvailable", true),
                     rainfallInches = root.getDouble("rainfallInches"),
+                    rainfallAmountAvailable = root.optBoolean("rainfallAmountAvailable", true),
                     temperatureFahrenheit = root.getInt("temperatureFahrenheit"),
                     windMph = root.getInt("windMph"),
                     windDirection = root.getString("windDirection"),
@@ -401,7 +408,9 @@ internal object WeatherSnapshotCodec {
                     condition = WeatherCondition.valueOf(root.getString("condition")),
                     conditionLabel = root.getString("conditionLabel"),
                     precipitationChance = root.getInt("precipitationChance"),
+                    precipitationChanceAvailable = root.optBoolean("precipitationChanceAvailable", true),
                     rainfallInches = root.getDouble("rainfallInches"),
+                    rainfallAmountAvailable = root.optBoolean("rainfallAmountAvailable", true),
                     highFahrenheit = root.getInt("highFahrenheit"),
                     lowFahrenheit = root.getInt("lowFahrenheit"),
                     sunrise = root.optString("sunrise", ""),
