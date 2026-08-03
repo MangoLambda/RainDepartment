@@ -3041,9 +3041,9 @@ internal fun timelineRainDropPlacements(condition: WeatherCondition): List<Timel
         TimelineRainDropPlacement(xFraction = 0.72f, yFraction = 0.78f),
     )
     WeatherCondition.RAIN -> listOf(
-        TimelineRainDropPlacement(xFraction = 0.29f, yFraction = 0.74f),
-        TimelineRainDropPlacement(xFraction = 0.51f, yFraction = 0.86f),
-        TimelineRainDropPlacement(xFraction = 0.73f, yFraction = 0.71f),
+        TimelineRainDropPlacement(xFraction = 0.40f, yFraction = 0.77f),
+        TimelineRainDropPlacement(xFraction = 0.54f, yFraction = 0.90f),
+        TimelineRainDropPlacement(xFraction = 0.68f, yFraction = 0.80f),
     )
     WeatherCondition.HEAVY_RAIN -> listOf(
         TimelineRainDropPlacement(xFraction = 0.22f, yFraction = 0.75f),
