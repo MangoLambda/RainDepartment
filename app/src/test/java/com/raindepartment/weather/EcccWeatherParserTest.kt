@@ -2,6 +2,7 @@ package com.raindepartment.weather
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.coroutines.runBlocking
@@ -121,6 +122,21 @@ class EcccWeatherParserTest {
         assertEquals("Now", forecast.rainStartsIn)
         assertTrue(forecast.rainStartsAtEpochMillis != null)
         assertEquals(RainStartSource.ECCC_FORECAST, forecast.rainStartSource)
+    }
+
+    @Test
+    fun zeroRainChanceDoesNotCountAnEcccRainConditionAsRain() {
+        val forecast = EcccWeatherParser.parse(
+            json = ZERO_RAIN_CHANCE_FIXTURE,
+            location = WeatherLocation(45.4025, -71.9013, "Sherbrooke, Quebec"),
+        ).forecast
+
+        assertEquals(WeatherCondition.RAIN, forecast.condition)
+        assertEquals(0, forecast.precipitationChance)
+        assertEquals("No rain expected", forecast.rainStartsIn)
+        assertNull(forecast.rainStartsAtEpochMillis)
+        assertEquals(RainStartSource.NONE, forecast.rainStartSource)
+        assertFalse(forecast.isCurrentlyRaining())
     }
 
     @Test
@@ -278,6 +294,30 @@ class EcccWeatherParserTest {
         assertEquals(now + 2 * 60_000L, forecast.rainStartsAtEpochMillis)
         assertEquals(RainStartSource.ECCC_FORECAST, forecast.rainStartSource)
         assertEquals("2 minutes", forecast.rainStartsIn)
+
+        val zeroChancePrimary = primaryForecast.copy(
+            precipitationChance = 0,
+            hourly = primaryHourly.map { it.copy(precipitationChance = 0) },
+        )
+        val zeroChanceSupplemental = supplementalForecast.copy(
+            precipitationChance = 0,
+            hourly = supplementalHourly.map { it.copy(precipitationChance = 0) },
+        )
+        val zeroChanceClient = EcccFirstWeatherClient(
+            primary = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(zeroChancePrimary, "America/Toronto")
+            },
+            fallback = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(zeroChanceSupplemental, "America/Toronto")
+            },
+        )
+
+        val zeroChanceForecast = zeroChanceClient.fetch(AustinLocation).forecast
+
+        assertNull(zeroChanceForecast.rainStartsAtEpochMillis)
+        assertEquals("No rain expected", zeroChanceForecast.rainStartsIn)
     }
 
     @Test
@@ -345,5 +385,68 @@ class EcccWeatherParserTest {
         assertEquals(now + 60_000L, forecast.rainStartsAtEpochMillis)
         assertEquals("1 minute", forecast.rainStartsIn)
         assertFalse(forecast.isCurrentlyRaining())
+    }
+
+    private companion object {
+        val ZERO_RAIN_CHANCE_FIXTURE = """
+            {
+              "type":"FeatureCollection",
+              "features":[{
+                "type":"Feature",
+                "geometry":{"type":"Point","coordinates":[-71.9013,45.4025]},
+                "properties":{
+                  "currentConditions":{
+                    "timestamp":{"en":"2026-08-03T10:14:00Z"},
+                    "temperature":{"value":{"en":21.1}},
+                    "condition":{"en":"Light Rain"},
+                    "wind":{
+                      "speed":{"value":{"en":17}},
+                      "direction":{"value":{"en":"SSE"}}
+                    }
+                  },
+                  "hourlyForecastGroup":{
+                    "hourlyForecasts":[
+                      {
+                        "timestamp":"2026-08-03T11:00:00Z",
+                        "condition":{"en":"Rain"},
+                        "temperature":{"value":{"en":20}},
+                        "lop":{"value":{"en":0}},
+                        "wind":{
+                          "speed":{"value":{"en":15}},
+                          "direction":{"value":{"en":"SE"}}
+                        }
+                      }
+                    ]
+                  },
+                  "forecastGroup":{
+                    "forecasts":[
+                      {
+                        "period":{
+                          "textForecastName":{"en":"Today"},
+                          "value":{"en":"Monday"}
+                        },
+                        "temperatures":{
+                          "temperature":[
+                            {"class":{"en":"high"},"value":{"en":23}}
+                          ]
+                        },
+                        "abbreviatedForecast":{
+                          "textSummary":{"en":"0 percent chance of rain"}
+                        },
+                        "winds":{
+                          "periods":[
+                            {
+                              "speed":{"value":{"en":15}},
+                              "direction":{"en":"SE"}
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }]
+            }
+        """.trimIndent()
     }
 }

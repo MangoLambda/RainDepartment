@@ -146,13 +146,15 @@ private fun DashboardForecast.withAmountBasedRainStart(): DashboardForecast {
     val currentTimeEpochMillis = hourly.firstOrNull()?.timeEpochMillis
     val rainStartsAt = when {
         currentTimeEpochMillis != null &&
-            condition.isRainBearing() -> currentTimeEpochMillis
+            condition.isRainBearing() &&
+            currentPrecipitationChanceAllowsRain() -> currentTimeEpochMillis
         else -> hourly.asSequence()
             .drop(1)
             .mapNotNull { hour -> hour.timeEpochMillis?.let { it to hour } }
             .firstOrNull { (timeEpochMillis, hour) ->
                 timeEpochMillis >= (currentTimeEpochMillis ?: Long.MIN_VALUE) &&
                     hour.rainfallAmountAvailable &&
+                    hour.precipitationChanceAllowsRain() &&
                     hasMinimumRainStartAmount(hour.rainfallInches)
             }
             ?.first
@@ -295,7 +297,14 @@ internal object EcccWeatherParser {
         val firstDailyChance = firstDay?.precipitationChance ?: currentRecord.precipitationChance
         val firstDailyChanceAvailable = firstDay?.precipitationChanceAvailable
             ?: currentRecord.precipitationChanceAvailable
-        val rainStartsAt = currentTime.takeIf { currentCondition.first.isRainBearing() }
+        val rainStartsAt = currentTime.takeIf {
+            currentCondition.first.isRainBearing() &&
+                precipitationChanceAllowsRain(
+                    currentRecord.precipitationChance,
+                    currentRecord.precipitationChanceAvailable,
+                ) &&
+                precipitationChanceAllowsRain(firstDailyChance, firstDailyChanceAvailable)
+        }
         val peakWind = firstDay?.let {
             EcccWind(it.peakWindMph, it.peakWindDirection)
         } ?: visibleRecords.maxByOrNull { it.windMph }?.let {

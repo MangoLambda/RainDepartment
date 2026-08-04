@@ -127,6 +127,38 @@ class DashboardDataTest {
     }
 
     @Test
+    fun zeroRainChanceDoesNotCountAsRainNowOrSoon() {
+        val now = 1_000_000L
+        val forecast = testForecast().copy(
+            condition = WeatherCondition.RAIN,
+            conditionLabel = "Rain",
+            precipitationChance = 0,
+            rainStartsIn = "Now",
+            rainStartsAtEpochMillis = now - 1L,
+            hourly = listOf(testForecast().hourly.first().copy(precipitationChance = 0)),
+        )
+
+        assertFalse(forecast.isCurrentlyRaining(now))
+        assertEquals("No rain expected", forecast.rainStartCountdownText(now))
+        assertEquals(null, forecast.widgetRainStartText(now))
+    }
+
+    @Test
+    fun zeroCurrentHourlyRainChanceDoesNotCountRainAsFalling() {
+        val now = 1_000_000L
+        val forecast = testForecast().copy(
+            condition = WeatherCondition.RAIN,
+            conditionLabel = "Rain",
+            rainStartsAtEpochMillis = now - 1L,
+            hourly = listOf(testForecast().hourly.first().copy(precipitationChance = 0)),
+        )
+
+        assertFalse(forecast.isCurrentlyRaining(now))
+        assertEquals("No rain expected", forecast.rainStartCountdownText(now))
+        assertEquals(null, forecast.widgetRainStartText(now))
+    }
+
+    @Test
     fun radarRateMapsToCurrentConditionIntensity() {
         assertEquals(
             WeatherCondition.DRIZZLE to "Drizzle",

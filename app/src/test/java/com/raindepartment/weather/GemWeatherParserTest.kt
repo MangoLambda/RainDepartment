@@ -50,6 +50,29 @@ class GemWeatherParserTest {
     }
 
     @Test
+    fun zeroRainChanceDoesNotCountRainConditionOrAmountAsRain() {
+        val zeroChance = FIXTURE
+            .replace("\"weather_code\":2", "\"weather_code\":61")
+            .replace(
+                "\"precipitation_probability\":[10,20,50,80,10]",
+                "\"precipitation_probability\":[0,0,0,0,0]",
+            )
+            .replace(
+                "\"precipitation_probability_max\":[80,70]",
+                "\"precipitation_probability_max\":[0,0]",
+            )
+
+        val forecast = GemWeatherParser.parse(zeroChance, AustinLocation).forecast
+
+        assertEquals(WeatherCondition.RAIN, forecast.condition)
+        assertEquals(0, forecast.precipitationChance)
+        assertEquals("No rain expected", forecast.rainStartsIn)
+        assertEquals(null, forecast.rainStartsAtEpochMillis)
+        assertEquals(RainStartSource.NONE, forecast.rainStartSource)
+        assertFalse(forecast.isCurrentlyRaining())
+    }
+
+    @Test
     fun currentModelAmountDoesNotClaimRainIsFallingUnderOvercastConditions() {
         val overcast = FIXTURE
             .replace("\"weather_code\":2\n", "\"weather_code\":3\n")

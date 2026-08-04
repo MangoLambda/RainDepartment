@@ -282,6 +282,51 @@ class WeatherRepositoryTest {
     }
 
     @Test
+    fun zeroRainChancePreventsRadarFromCountingRain() = runBlocking {
+        val now = 10_000L
+        val modelForecast = DashboardForecastTestData.forecast.copy(
+            precipitationChance = 0,
+            condition = WeatherCondition.OVERCAST,
+            conditionLabel = "Overcast",
+            hourly = listOf(
+                DashboardForecastTestData.forecast.hourly.first().copy(
+                    precipitationChance = 0,
+                    condition = WeatherCondition.OVERCAST,
+                    conditionLabel = "Overcast",
+                ),
+            ),
+        )
+        val repository = WeatherRepository(
+            client = object : GemWeatherClient {
+                override suspend fun fetch(location: WeatherLocation): ParsedGemWeather =
+                    ParsedGemWeather(modelForecast, "America/Chicago")
+            },
+            cache = FakeCache(),
+            locationProvider = FakeLocationProvider(),
+            clock = { now },
+            radarClient = object : EcccRadarClient {
+                override suspend fun findRainStart(
+                    location: WeatherLocation,
+                    nowEpochMillis: Long,
+                ): EcccRadarRainStart = EcccRadarRainStart(
+                    startsAtEpochMillis = now,
+                    confidenceMeaningful = true,
+                    currentRateMillimetersPerHour = 8.0,
+                )
+            },
+        )
+
+        val result = repository.refresh(force = true)
+
+        assertTrue(result is RefreshResult.Updated)
+        val forecast = repository.state.value.snapshot!!.forecast
+        assertEquals(WeatherCondition.OVERCAST, forecast.condition)
+        assertEquals(RainStartSource.NONE, forecast.rainStartSource)
+        assertNull(forecast.rainStartsAtEpochMillis)
+        assertFalse(forecast.isCurrentlyRaining(now))
+    }
+
+    @Test
     fun meaningfulRadarStartDoesNotDependOnHourlyModelAmount() = runBlocking {
         val now = 10_000L
         var radarCalls = 0

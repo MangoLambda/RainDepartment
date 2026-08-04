@@ -160,6 +160,13 @@ internal class WeatherRepository(
         location: WeatherLocation,
         nowEpochMillis: Long,
     ): DashboardForecast {
+        if (!precipitationChanceAllowsRain(
+                forecast.precipitationChance,
+                forecast.precipitationChanceAvailable,
+            )
+        ) {
+            return forecast
+        }
         val radarRainStart = try {
             radarClient.findRainStart(location, nowEpochMillis)
         } catch (cancelled: CancellationException) {
@@ -171,6 +178,9 @@ internal class WeatherRepository(
         val radarCondition = radarRainStart.currentRateMillimetersPerHour
             ?.let(::radarConditionForRainRate)
         val isCurrentRadarRain = radarCondition != null
+        if (isCurrentRadarRain && !forecast.currentPrecipitationChanceAllowsRain()) {
+            return forecast
+        }
         if (!isCurrentRadarRain && !radarRainStart.confidenceMeaningful) {
             return forecast
         }

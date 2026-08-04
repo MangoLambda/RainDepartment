@@ -239,6 +239,18 @@ internal fun WeatherCondition.isRainBearing(): Boolean = this in setOf(
 internal fun hasMinimumRainStartAmount(rainfallInches: Double): Boolean =
     rainfallInches.isFinite() && rainfallInches >= MINIMUM_RAIN_START_AMOUNT_INCHES
 
+internal fun precipitationChanceAllowsRain(
+    precipitationChance: Int,
+    available: Boolean,
+): Boolean = !available || precipitationChance > 0
+
+internal fun HourlyForecast.precipitationChanceAllowsRain(): Boolean =
+    precipitationChanceAllowsRain(precipitationChance, precipitationChanceAvailable)
+
+internal fun DashboardForecast.currentPrecipitationChanceAllowsRain(): Boolean =
+    precipitationChanceAllowsRain(precipitationChance, precipitationChanceAvailable) &&
+        hourly.firstOrNull()?.precipitationChanceAllowsRain() != false
+
 internal fun radarConditionForRainRate(rateMillimetersPerHour: Double): Pair<WeatherCondition, String>? {
     val rate = rateMillimetersPerHour.takeIf { it.isFinite() } ?: return null
     if (rate < RADAR_MEANINGFUL_RATE_MM_PER_HOUR) return null
@@ -251,7 +263,13 @@ internal fun radarConditionForRainRate(rateMillimetersPerHour: Double): Pair<Wea
 }
 
 internal fun DashboardForecast.rainStartMinutesFromNow(nowEpochMillis: Long): Long? {
+    if (!precipitationChanceAllowsRain(precipitationChance, precipitationChanceAvailable)) {
+        return null
+    }
     val startsAt = rainStartsAtEpochMillis ?: return null
+    if (startsAt <= nowEpochMillis && !currentPrecipitationChanceAllowsRain()) {
+        return null
+    }
     val remainingMillis = startsAt - nowEpochMillis
     return if (remainingMillis <= 0L) {
         0L
@@ -261,6 +279,14 @@ internal fun DashboardForecast.rainStartMinutesFromNow(nowEpochMillis: Long): Lo
 }
 
 internal fun DashboardForecast.rainStartCountdownText(nowEpochMillis: Long): String {
+    if (!precipitationChanceAllowsRain(precipitationChance, precipitationChanceAvailable)) {
+        return "No rain expected"
+    }
+    if (rainStartsAtEpochMillis?.let { it <= nowEpochMillis } == true &&
+        !currentPrecipitationChanceAllowsRain()
+    ) {
+        return "No rain expected"
+    }
     val minutes = rainStartMinutesFromNow(nowEpochMillis)
     return when {
         minutes == 0L -> if (isCurrentlyRaining(nowEpochMillis)) "Now" else "Soon"
@@ -273,6 +299,7 @@ internal fun DashboardForecast.rainStartCountdownText(nowEpochMillis: Long): Str
 internal fun DashboardForecast.isCurrentlyRaining(
     nowEpochMillis: Long = System.currentTimeMillis(),
 ): Boolean = condition.isRainBearing() &&
+    currentPrecipitationChanceAllowsRain() &&
     (rainStartsAtEpochMillis == null || rainStartsAtEpochMillis <= nowEpochMillis)
 
 internal fun DashboardForecast.widgetRainStartText(nowEpochMillis: Long): String? {
