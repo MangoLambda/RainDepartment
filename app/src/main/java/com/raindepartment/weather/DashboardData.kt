@@ -17,6 +17,11 @@ internal enum class ForecastRange(val label: String) {
     MONTH("Month"),
 }
 
+internal enum class ForecastRangePosition(val label: String, val description: String) {
+    TOP("At top", "Above the forecast"),
+    BOTTOM("Bottom", "Just above the navigation bar"),
+}
+
 internal data class HourlyForecast(
     val time: String,
     val precipitationChance: Int,

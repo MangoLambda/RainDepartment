@@ -266,7 +266,16 @@ internal fun RainDepartmentApp(
     val selectedRange = ForecastRange.valueOf(selectedRangeName)
     var selectedDayIndex by rememberSaveable { mutableIntStateOf(-1) }
     var unitSystem by remember { mutableStateOf(WeatherPreferences.unitSystem(context)) }
+    var forecastRangePositionName by remember {
+        mutableStateOf(WeatherPreferences.forecastRangePosition(context).name)
+    }
+    val forecastRangePosition = ForecastRangePosition.valueOf(forecastRangePositionName)
     val currentWeather = weatherState.snapshot?.forecast?.currentWeather()
+
+    val selectRange: (ForecastRange) -> Unit = {
+        selectedRangeName = it.name
+        selectedDayIndex = -1
+    }
 
     val refreshForecast: () -> Unit = {
         weatherScope.launch {
@@ -389,6 +398,10 @@ internal fun RainDepartmentApp(
         if (updateWidget) WeatherWidget.updateAll(context.applicationContext)
     }
 
+    LaunchedEffect(forecastRangePosition) {
+        WeatherPreferences.setForecastRangePosition(context, forecastRangePosition)
+    }
+
     Scaffold(
         containerColor = DashboardBackground,
         topBar = {
@@ -399,10 +412,26 @@ internal fun RainDepartmentApp(
             )
         },
         bottomBar = {
-            RainDepartmentBottomNavigation(
-                selected = selectedTab,
-                onSelected = { selectedTabName = it.name },
-            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (selectedTab == DashboardTab.BRIEFING &&
+                    forecastRangePosition == ForecastRangePosition.BOTTOM
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color.White,
+                    ) {
+                        ForecastRangeSelector(
+                            selected = selectedRange,
+                            onSelected = selectRange,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+                RainDepartmentBottomNavigation(
+                    selected = selectedTab,
+                    onSelected = { selectedTabName = it.name },
+                )
+            }
         },
     ) { paddingValues ->
         Box(
@@ -421,10 +450,8 @@ internal fun RainDepartmentApp(
                             unitSystem = unitSystem,
                             backgroundWeather = snapshot.forecast.currentWeather(),
                             selectedRange = selectedRange,
-                            onRangeSelected = {
-                                selectedRangeName = it.name
-                                selectedDayIndex = -1
-                            },
+                            rangePosition = forecastRangePosition,
+                            onRangeSelected = selectRange,
                             selectedDayIndex = selectedDayIndex,
                             onDaySelected = {
                                 selectedRangeName = ForecastRange.SEVEN_DAYS.name
@@ -472,6 +499,10 @@ internal fun RainDepartmentApp(
                     weather = currentWeather,
                     unitSystem = unitSystem,
                     onUnitSystemSelected = { unitSystem = it },
+                    forecastRangePosition = forecastRangePosition,
+                    onForecastRangePositionSelected = {
+                        forecastRangePositionName = it.name
+                    },
                 )
 
                 DashboardTab.RADAR -> RadarScreen(
@@ -2182,6 +2213,7 @@ private fun BriefingScreen(
     unitSystem: UnitSystem,
     backgroundWeather: CurrentWeather,
     selectedRange: ForecastRange,
+    rangePosition: ForecastRangePosition,
     onRangeSelected: (ForecastRange) -> Unit,
     selectedDayIndex: Int,
     onDaySelected: (Int) -> Unit,
@@ -2199,6 +2231,7 @@ private fun BriefingScreen(
             unitSystem = unitSystem,
             backgroundWeather = backgroundWeather,
             selectedRange = selectedRange,
+            rangePosition = rangePosition,
             onRangeSelected = onRangeSelected,
             selectedDayIndex = selectedDayIndex,
             onDaySelected = onDaySelected,
@@ -2231,6 +2264,7 @@ private fun BriefingScreen(
             unitSystem = unitSystem,
             backgroundWeather = backgroundWeather,
             selectedRange = selectedRange,
+            rangePosition = rangePosition,
             onRangeSelected = onRangeSelected,
             selectedDayIndex = selectedDayIndex,
             onDaySelected = onDaySelected,
@@ -4015,6 +4049,7 @@ private fun BriefingContent(
     unitSystem: UnitSystem,
     backgroundWeather: CurrentWeather,
     selectedRange: ForecastRange,
+    rangePosition: ForecastRangePosition,
     onRangeSelected: (ForecastRange) -> Unit,
     selectedDayIndex: Int,
     onDaySelected: (Int) -> Unit,
@@ -4036,10 +4071,12 @@ private fun BriefingContent(
                 errorMessage = errorMessage,
             )
         }
-        ForecastRangeSelector(
-            selected = selectedRange,
-            onSelected = onRangeSelected,
-        )
+        if (rangePosition == ForecastRangePosition.TOP) {
+            ForecastRangeSelector(
+                selected = selectedRange,
+                onSelected = onRangeSelected,
+            )
+        }
         val selectedDay = forecast.daily.getOrNull(selectedDayIndex)
         if (selectedDay != null) {
             DailyForecastDetailContent(
@@ -4432,9 +4469,10 @@ private fun MetricDivider() {
 private fun ForecastRangeSelector(
     selected: ForecastRange,
     onSelected: (ForecastRange) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(Color(0xFFE6F0F9))
@@ -6067,6 +6105,8 @@ private fun SettingsScreen(
     weather: CurrentWeather?,
     unitSystem: UnitSystem,
     onUnitSystemSelected: (UnitSystem) -> Unit,
+    forecastRangePosition: ForecastRangePosition,
+    onForecastRangePositionSelected: (ForecastRangePosition) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -6093,6 +6133,25 @@ private fun SettingsScreen(
             )
         }
         DashboardCard(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Forecast range position",
+                color = Navy,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            ForecastRangePositionSelector(
+                selected = forecastRangePosition,
+                onSelected = onForecastRangePositionSelected,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Choose where Today, 7 Days and Month appear on the briefing.",
+                color = MutedNavy,
+                fontSize = 11.sp,
+            )
+        }
+        DashboardCard(modifier = Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(imageVector = Icons.Outlined.Tune, contentDescription = null, tint = AccentBlue)
                 Spacer(modifier = Modifier.width(6.dp))
@@ -6105,6 +6164,45 @@ private fun SettingsScreen(
             WeatherPreviewCard(weather = weather, unitSystem = unitSystem)
         }
         WeatherAttribution()
+    }
+}
+
+@Composable
+private fun ForecastRangePositionSelector(
+    selected: ForecastRangePosition,
+    onSelected: (ForecastRangePosition) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFFE4EDF5))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        ForecastRangePosition.entries.forEach { position ->
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (selected == position) Color.White else Color.Transparent)
+                    .clickable { onSelected(position) }
+                    .padding(vertical = 9.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = position.label,
+                    color = if (selected == position) DeepBlue else MutedNavy,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = position.description,
+                    color = MutedNavy,
+                    fontSize = 9.sp,
+                )
+            }
+        }
     }
 }
 

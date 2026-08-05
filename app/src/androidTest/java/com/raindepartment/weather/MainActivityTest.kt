@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Before
@@ -22,6 +23,10 @@ class MainActivityTest {
     fun setUp() {
         WeatherPreferences.clearSelectedLocation(
             InstrumentationRegistry.getInstrumentation().targetContext,
+        )
+        WeatherPreferences.setForecastRangePosition(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            ForecastRangePosition.TOP,
         )
         composeRule.setContent {
             RainDepartmentTheme {
@@ -119,8 +124,14 @@ class MainActivityTest {
     fun settingsKeepsUnitAndWidgetControls() {
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Temperature units").assertIsDisplayed()
+        composeRule.onNodeWithText("Widget appearance").performScrollTo()
         composeRule.onNodeWithText("Widget appearance").assertIsDisplayed()
         composeRule.onNodeWithText("Follows the live condition shown in the app.").assertIsDisplayed()
+        composeRule.onNodeWithText("Forecast range position").performScrollTo()
+        composeRule.onNodeWithText("Forecast range position").assertIsDisplayed()
+        composeRule.onNodeWithText("Bottom").performClick()
+        composeRule.onNodeWithText("Just above the navigation bar").assertIsDisplayed()
+        composeRule.onNodeWithText("Temperature units").performScrollTo()
         composeRule.onNodeWithText("Imperial").performClick()
         composeRule.onNodeWithText("°F · mph").assertIsDisplayed()
 

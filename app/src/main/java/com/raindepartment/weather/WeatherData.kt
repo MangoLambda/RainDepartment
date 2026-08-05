@@ -40,6 +40,7 @@ internal enum class WeatherCondition {
 internal object WeatherPreferences {
     private const val PREFERENCES_NAME = "weather_preferences"
     private const val UNIT_SYSTEM_KEY = "unit_system"
+    private const val FORECAST_RANGE_POSITION_KEY = "forecast_range_position"
     private const val SELECTED_LOCATION_LATITUDE_KEY = "selected_location_latitude"
     private const val SELECTED_LOCATION_LONGITUDE_KEY = "selected_location_longitude"
     private const val SELECTED_LOCATION_LABEL_KEY = "selected_location_label"
@@ -57,6 +58,23 @@ internal object WeatherPreferences {
             .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(UNIT_SYSTEM_KEY, unitSystem.name)
+            .apply()
+    }
+
+    fun forecastRangePosition(context: Context): ForecastRangePosition {
+        val stored = context
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .getString(FORECAST_RANGE_POSITION_KEY, null)
+
+        return ForecastRangePosition.entries.firstOrNull { it.name == stored }
+            ?: ForecastRangePosition.TOP
+    }
+
+    fun setForecastRangePosition(context: Context, position: ForecastRangePosition) {
+        context
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(FORECAST_RANGE_POSITION_KEY, position.name)
             .apply()
     }
 
