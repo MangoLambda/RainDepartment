@@ -52,7 +52,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.AcUnit
 import androidx.compose.material.icons.outlined.Air
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.ChevronLeft
@@ -961,7 +960,7 @@ private fun CityPickerCurrentCard(
                     Spacer(modifier = Modifier.height(5.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (forecast != null) {
-                            ConditionIcon(forecast.condition, Modifier.size(19.dp))
+                            WeatherConditionIcon(forecast.condition, Modifier.size(19.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = forecast.conditionLabel,
@@ -2782,7 +2781,7 @@ private fun TimelineSummaryCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TimelineConditionIcon(forecast.condition, Modifier.size(58.dp))
+                WeatherConditionIcon(forecast.condition, Modifier.size(58.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -2908,95 +2907,6 @@ private fun TimelineMetricDivider() {
 }
 
 @Composable
-private fun TimelineRainIcon(
-    condition: WeatherCondition,
-    modifier: Modifier,
-) {
-    val dropPlacements = timelineRainDropPlacements(condition)
-    if (dropPlacements.isEmpty()) return
-    val dropCount = dropPlacements.size
-
-    BoxWithConstraints(modifier) {
-        val dropSize = when {
-            dropCount == 1 && maxWidth < 45.dp -> 12.dp
-            dropCount == 1 -> 16.dp
-            dropCount == 2 && maxWidth < 45.dp -> 6.dp
-            dropCount == 2 -> 10.dp
-            dropCount >= 6 && maxWidth < 45.dp -> 6.dp
-            dropCount >= 6 -> 9.dp
-            maxWidth < 45.dp -> 8.dp
-            else -> 12.dp
-        }
-
-        Icon(
-            imageVector = Icons.Outlined.CloudQueue,
-            contentDescription = condition.name,
-            tint = AccentBlue,
-            modifier = Modifier.fillMaxSize(),
-        )
-        dropPlacements.forEach { placement ->
-            Icon(
-                imageVector = Icons.Outlined.WaterDrop,
-                contentDescription = null,
-                tint = AccentBlue,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .size(dropSize)
-                    .offset(
-                        x = maxWidth * placement.xFraction - dropSize / 2,
-                        y = maxHeight * (
-                            placement.yFraction + TIMELINE_RAIN_VERTICAL_OFFSET_FRACTION
-                        ) - dropSize / 2,
-                    ),
-            )
-        }
-    }
-}
-
-internal data class TimelineRainDropPlacement(
-    val xFraction: Float,
-    val yFraction: Float,
-)
-
-private const val TIMELINE_RAIN_VERTICAL_OFFSET_FRACTION = 0.18f
-
-internal fun timelineRainDropPlacements(condition: WeatherCondition): List<TimelineRainDropPlacement> = when (condition) {
-    WeatherCondition.DRIZZLE -> listOf(
-        TimelineRainDropPlacement(xFraction = 0.42f, yFraction = 0.76f),
-        TimelineRainDropPlacement(xFraction = 0.62f, yFraction = 0.88f),
-    )
-    WeatherCondition.RAIN -> listOf(
-        TimelineRainDropPlacement(xFraction = 0.40f, yFraction = 0.77f),
-        TimelineRainDropPlacement(xFraction = 0.54f, yFraction = 0.90f),
-        TimelineRainDropPlacement(xFraction = 0.68f, yFraction = 0.80f),
-    )
-    WeatherCondition.HEAVY_RAIN -> listOf(
-        TimelineRainDropPlacement(xFraction = 0.25f, yFraction = 0.72f),
-        TimelineRainDropPlacement(xFraction = 0.50f, yFraction = 0.72f),
-        TimelineRainDropPlacement(xFraction = 0.75f, yFraction = 0.72f),
-        TimelineRainDropPlacement(xFraction = 0.38f, yFraction = 0.87f),
-        TimelineRainDropPlacement(xFraction = 0.62f, yFraction = 0.87f),
-        TimelineRainDropPlacement(xFraction = 0.86f, yFraction = 0.87f),
-    )
-    else -> emptyList()
-}
-
-internal fun timelineRainDropCount(condition: WeatherCondition): Int? =
-    timelineRainDropPlacements(condition).size.takeIf { it > 0 }
-
-@Composable
-private fun TimelineConditionIcon(
-    condition: WeatherCondition,
-    modifier: Modifier,
-) {
-    if (timelineRainDropCount(condition) != null) {
-        TimelineRainIcon(condition, modifier)
-    } else {
-        ConditionIcon(condition, modifier)
-    }
-}
-
-@Composable
 private fun TimelineHourItem(
     hour: HourlyForecast,
     forecast: DashboardForecast,
@@ -3084,7 +2994,7 @@ private fun TimelineHourItem(
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                     )
-                    TimelineConditionIcon(hour.condition, Modifier.size(34.dp))
+                    WeatherConditionIcon(hour.condition, Modifier.size(34.dp))
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -4030,15 +3940,19 @@ private fun timelineTitleCase(value: String): String = value
     .replaceFirstChar { it.uppercase(Locale.getDefault()) }
 
 private fun timelineConditionDescription(condition: WeatherCondition): String = when (condition) {
-    WeatherCondition.CLEAR, WeatherCondition.MOSTLY_CLEAR -> "Clear skies."
+    WeatherCondition.CLEAR -> "Clear skies."
+    WeatherCondition.MOSTLY_CLEAR -> "Mostly clear skies."
     WeatherCondition.PARTLY_CLOUDY -> "A mix of sun and clouds."
-    WeatherCondition.OVERCAST, WeatherCondition.FOG, WeatherCondition.ATMOSPHERIC_HAZE ->
-        "Mostly cloudy skies."
+    WeatherCondition.OVERCAST -> "Cloudy skies."
+    WeatherCondition.FOG -> "Low visibility in fog."
+    WeatherCondition.ATMOSPHERIC_HAZE -> "Hazy skies."
     WeatherCondition.DRIZZLE -> "Light drizzle."
     WeatherCondition.RAIN -> "Steady rain."
     WeatherCondition.HEAVY_RAIN -> "Periods of heavy rain."
-    WeatherCondition.THUNDERSTORM, WeatherCondition.SEVERE_WEATHER -> "Stormy conditions."
-    WeatherCondition.SNOW, WeatherCondition.HEAVY_SNOW -> "Snow showers likely."
+    WeatherCondition.THUNDERSTORM -> "Thunderstorms possible."
+    WeatherCondition.SEVERE_WEATHER -> "Severe thunderstorms possible."
+    WeatherCondition.SNOW -> "Snow likely."
+    WeatherCondition.HEAVY_SNOW -> "Periods of heavy snow."
     WeatherCondition.WINTRY_MIX -> "A wintry mix."
 }
 
@@ -4363,7 +4277,7 @@ private fun WeatherHeroCard(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(top = 1.dp),
                     ) {
-                        ConditionIcon(
+                        WeatherConditionIcon(
                             condition = forecast.condition,
                             modifier = Modifier.size(25.dp),
                         )
@@ -4790,7 +4704,7 @@ private fun DailyWeatherHeroCard(
                         modifier = Modifier.padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ConditionIcon(day.condition, Modifier.size(25.dp))
+                        WeatherConditionIcon(day.condition, Modifier.size(25.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = day.conditionLabel,
@@ -5087,7 +5001,7 @@ private fun SevenDaySummaryCard(
                             lineHeight = 14.sp,
                         )
                     }
-                    ConditionIcon(
+                    WeatherConditionIcon(
                         condition = representativeCondition,
                         modifier = Modifier.size(45.dp),
                     )
@@ -5206,7 +5120,7 @@ private fun SevenDayDailyStrip(
                             fontSize = 8.sp,
                         )
                         Spacer(modifier = Modifier.height(7.dp))
-                        ConditionIcon(day.condition, Modifier.size(31.dp))
+                        WeatherConditionIcon(day.condition, Modifier.size(31.dp))
                         Spacer(modifier = Modifier.height(5.dp))
                         Text(
                             text = forecast.temperature(day.highFahrenheit, unitSystem),
@@ -5766,7 +5680,7 @@ private fun SevenDayForecastCard(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                 )
-                ConditionIcon(day.condition, Modifier.size(22.dp))
+                WeatherConditionIcon(day.condition, Modifier.size(22.dp))
                 Text(
                     text = day.conditionLabel,
                     modifier = Modifier
@@ -6084,20 +5998,6 @@ private fun BarChart(
             }
         }
     }
-}
-
-@Composable
-private fun ConditionIcon(condition: WeatherCondition, modifier: Modifier) {
-    val (icon, tint) = when (condition) {
-        WeatherCondition.CLEAR, WeatherCondition.MOSTLY_CLEAR -> Icons.Outlined.WbSunny to Color(0xFFF4B52D)
-        WeatherCondition.PARTLY_CLOUDY -> Icons.Outlined.CloudQueue to Color(0xFF6795C4)
-        WeatherCondition.OVERCAST, WeatherCondition.FOG, WeatherCondition.ATMOSPHERIC_HAZE ->
-            Icons.Outlined.Cloud to Color(0xFF71869E)
-        WeatherCondition.SNOW, WeatherCondition.HEAVY_SNOW, WeatherCondition.WINTRY_MIX -> Icons.Outlined.AcUnit to AccentBlue
-        WeatherCondition.THUNDERSTORM, WeatherCondition.SEVERE_WEATHER -> Icons.Outlined.Air to Color(0xFF5F77A7)
-        else -> Icons.Outlined.WaterDrop to AccentBlue
-    }
-    Icon(imageVector = icon, contentDescription = condition.name, tint = tint, modifier = modifier)
 }
 
 @Composable

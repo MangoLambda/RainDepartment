@@ -661,29 +661,48 @@ internal object EcccWeatherParser {
         ?.toIntOrNull()
         ?.coerceIn(0, 100)
 
-    private fun conditionForEcccText(value: String): Pair<WeatherCondition, String> {
+    internal fun conditionForEcccText(value: String): Pair<WeatherCondition, String> {
         val label = value.trim().trimEnd('.').ifBlank { "Overcast" }
         val lower = label.lowercase(Locale.ROOT)
         val condition = when {
             "severe thunderstorm" in lower -> WeatherCondition.SEVERE_WEATHER
             "thunderstorm" in lower -> WeatherCondition.THUNDERSTORM
-            "freezing rain" in lower || "freezing drizzle" in lower || "ice pellet" in lower ->
+            "freezing rain" in lower ||
+                "freezing drizzle" in lower ||
+                "ice pellet" in lower ||
+                "wintry mix" in lower ||
+                "mixed precipitation" in lower ||
+                lower.containsBoth("rain", "snow") ->
                 WeatherCondition.WINTRY_MIX
             "heavy rain" in lower || "heavy shower" in lower -> WeatherCondition.HEAVY_RAIN
             "drizzle" in lower -> WeatherCondition.DRIZZLE
+            "heavy snow" in lower || "snow squall" in lower || "blizzard" in lower ->
+                WeatherCondition.HEAVY_SNOW
             "rain" in lower || "shower" in lower -> WeatherCondition.RAIN
-            "heavy snow" in lower -> WeatherCondition.HEAVY_SNOW
-            "snow" in lower || "flurr" in lower -> WeatherCondition.SNOW
-            "fog" in lower -> WeatherCondition.FOG
-            "haze" in lower -> WeatherCondition.ATMOSPHERIC_HAZE
+            "snow" in lower || "flurr" in lower || "ice crystal" in lower ->
+                WeatherCondition.SNOW
+            "fog" in lower || "mist" in lower -> WeatherCondition.FOG
+            "haze" in lower || "smoke" in lower || "blowing dust" in lower ->
+                WeatherCondition.ATMOSPHERIC_HAZE
+            "mainly sunny" in lower ||
+                "mainly clear" in lower ||
+                "mostly sunny" in lower ||
+                "mostly clear" in lower ||
+                "a few clouds" in lower -> WeatherCondition.MOSTLY_CLEAR
+            "partly" in lower ||
+                "mix of sun" in lower ||
+                "sunny break" in lower ||
+                "cloudy period" in lower -> WeatherCondition.PARTLY_CLOUDY
             "clear" in lower || "sunny" in lower -> WeatherCondition.CLEAR
-            "partly" in lower || "mix of sun" in lower -> WeatherCondition.PARTLY_CLOUDY
             "mostly cloudy" in lower || "cloudy" in lower || "overcast" in lower ->
                 WeatherCondition.OVERCAST
             else -> WeatherCondition.OVERCAST
         }
         return condition to label
     }
+
+    private fun String.containsBoth(first: String, second: String): Boolean =
+        first in this && second in this
 
     private fun formatHour(time: ZonedDateTime): String = time.format(hourFormatter)
 

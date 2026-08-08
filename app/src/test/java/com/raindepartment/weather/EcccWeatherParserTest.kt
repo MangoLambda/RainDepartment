@@ -9,6 +9,33 @@ import kotlinx.coroutines.runBlocking
 
 class EcccWeatherParserTest {
     @Test
+    fun classifiesWarmColdAndTransitionalSeasonConditions() {
+        val expected = mapOf(
+            "Sunny" to WeatherCondition.CLEAR,
+            "Mainly sunny" to WeatherCondition.MOSTLY_CLEAR,
+            "A few clouds" to WeatherCondition.MOSTLY_CLEAR,
+            "Cloudy periods" to WeatherCondition.PARTLY_CLOUDY,
+            "Cloudy with sunny breaks" to WeatherCondition.PARTLY_CLOUDY,
+            "Overcast" to WeatherCondition.OVERCAST,
+            "Fog patches" to WeatherCondition.FOG,
+            "Local smoke" to WeatherCondition.ATMOSPHERIC_HAZE,
+            "Light drizzle" to WeatherCondition.DRIZZLE,
+            "Rain" to WeatherCondition.RAIN,
+            "Heavy showers" to WeatherCondition.HEAVY_RAIN,
+            "Thunderstorms" to WeatherCondition.THUNDERSTORM,
+            "Severe thunderstorms" to WeatherCondition.SEVERE_WEATHER,
+            "Flurries" to WeatherCondition.SNOW,
+            "Snow squalls" to WeatherCondition.HEAVY_SNOW,
+            "Rain mixed with snow" to WeatherCondition.WINTRY_MIX,
+            "Ice pellets" to WeatherCondition.WINTRY_MIX,
+        )
+
+        expected.forEach { (text, condition) ->
+            assertEquals(text, condition, EcccWeatherParser.conditionForEcccText(text).first)
+        }
+    }
+
+    @Test
     fun parsesCurrentHourlyAndDailyForecastWithoutInventingRainAmounts() {
         val parsed = EcccWeatherParser.parse(
             json = """
