@@ -220,6 +220,75 @@ class EcccWeatherParserTest {
     }
 
     @Test
+    fun zeroEcccChanceSuppressesContradictorySupplementalRainAmounts() = runBlocking {
+        val now = 1_000_000L
+        val primaryHour = DashboardForecastTestData.forecast.hourly.first().copy(
+            precipitationChance = 0,
+            precipitationChanceAvailable = true,
+            rainfallInches = 0.0,
+            rainfallAmountAvailable = false,
+            timeEpochMillis = now,
+        )
+        val supplementalHour = primaryHour.copy(
+            precipitationChance = 90,
+            rainfallInches = 0.25,
+            rainfallAmountAvailable = true,
+        )
+        val primaryDay = DashboardForecastTestData.forecast.daily.first().copy(
+            precipitationChance = 0,
+            precipitationChanceAvailable = true,
+            rainfallInches = 0.0,
+            rainfallAmountAvailable = false,
+            hourly = listOf(primaryHour),
+        )
+        val supplementalDay = primaryDay.copy(
+            precipitationChance = 90,
+            rainfallInches = 0.25,
+            rainfallAmountAvailable = true,
+            hourly = listOf(supplementalHour),
+        )
+        val primary = DashboardForecastTestData.forecast.copy(
+            precipitationChance = 0,
+            precipitationChanceAvailable = true,
+            expectedRainInches = 0.0,
+            expectedRainAmountAvailable = false,
+            hourly = listOf(primaryHour),
+            daily = listOf(primaryDay),
+            precipitation24h = emptyList(),
+            rainfallOutlook = emptyList(),
+            source = ForecastSource.ECCC,
+        )
+        val supplemental = DashboardForecastTestData.forecast.copy(
+            precipitationChance = 90,
+            expectedRainInches = 0.25,
+            hourly = listOf(supplementalHour),
+            daily = listOf(supplementalDay),
+            precipitation24h = listOf(ChartPoint("Now", 0.25f)),
+            rainfallOutlook = listOf(ChartPoint("Today", 0.25f)),
+        )
+        val client = EcccFirstWeatherClient(
+            primary = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation) =
+                    ParsedGemWeather(primary, "America/Toronto")
+            },
+            fallback = object : WeatherClient {
+                override suspend fun fetch(location: WeatherLocation) =
+                    ParsedGemWeather(supplemental, "America/Toronto")
+            },
+        )
+
+        val forecast = client.fetch(AustinLocation).forecast
+
+        assertEquals(0, forecast.precipitationChance)
+        assertEquals(0.0, forecast.expectedRainInches, 0.0)
+        assertEquals(0.0, forecast.hourly.first().rainfallInches, 0.0)
+        assertEquals(0.0, forecast.daily.first().rainfallInches, 0.0)
+        assertEquals(0.0f, forecast.precipitation24h.first().value, 0.0f)
+        assertEquals(0.0f, forecast.rainfallOutlook.first().value, 0.0f)
+        assertEquals("No rain expected", forecast.rainStartsIn)
+    }
+
+    @Test
     fun ecccForecastUsesMinimumMergedRainAmountForRainStart() = runBlocking {
         val now = 1_000_000L
         val primaryHourly = listOf(

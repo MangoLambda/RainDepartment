@@ -26,6 +26,7 @@ class GemWeatherParserTest {
         assertEquals("SE", forecast.hourly[2].windDirectionLabel)
         assertEquals(2, forecast.daily.size)
         assertEquals(WeatherCondition.HEAVY_SNOW, forecast.daily[1].condition)
+        assertEquals(0.0, forecast.daily[1].rainfallInches, 0.0)
         assertEquals("6:33 AM", forecast.daily[1].sunrise)
         assertEquals(18, forecast.daily[1].peakWindMph)
         assertEquals("E", forecast.daily[1].peakWindDirection)
@@ -38,8 +39,11 @@ class GemWeatherParserTest {
     @Test
     fun doesNotStartRainForHourlyAmountBelowMinimum() {
         val belowMinimum = FIXTURE.replace(
-            "\"precipitation\":[0,0,0.1,0.2,0]",
-            "\"precipitation\":[0,0,0.003,0.0038,0]",
+            "\"rain\":[0,0,0.08,0.1,0]",
+            "\"rain\":[0,0,0.003,0.0038,0]",
+        ).replace(
+            "\"showers\":[0,0,0.02,0.1,0]",
+            "\"showers\":[0,0,0,0,0]",
         )
 
         val forecast = GemWeatherParser.parse(belowMinimum, AustinLocation).forecast
@@ -76,13 +80,27 @@ class GemWeatherParserTest {
     fun currentModelAmountDoesNotClaimRainIsFallingUnderOvercastConditions() {
         val overcast = FIXTURE
             .replace("\"weather_code\":2\n", "\"weather_code\":3\n")
-            .replace("\"precipitation\":0.0", "\"precipitation\":0.1")
+            .replace("\"rain\":0.0", "\"rain\":0.1")
 
         val forecast = GemWeatherParser.parse(overcast, AustinLocation).forecast
 
         assertEquals(WeatherCondition.OVERCAST, forecast.condition)
         assertEquals("1h", forecast.rainStartsIn)
         assertFalse(forecast.isCurrentlyRaining())
+    }
+
+    @Test
+    fun nowUsesTheActiveHourInsteadOfTheNextForecastHour() {
+        val betweenHours = FIXTURE.replace(
+            "\"time\":\"2026-08-01T12:00\"",
+            "\"time\":\"2026-08-01T12:45\"",
+        )
+
+        val forecast = GemWeatherParser.parse(betweenHours, AustinLocation).forecast
+
+        assertEquals("Now", forecast.hourly.first().time)
+        assertEquals(84, forecast.hourly.first().temperatureFahrenheit)
+        assertEquals(WeatherCondition.PARTLY_CLOUDY, forecast.hourly.first().condition)
     }
 
     @Test
@@ -98,15 +116,17 @@ class GemWeatherParserTest {
     }
 
     @Test
-    fun requestUrlSelectsGEMSeamlessAndRequiredUnits() {
+    fun requestUrlSelectsLocationAwareBestMatchAndRequiredUnits() {
         val url = gemRequestUrl(AustinLocation)
 
-        assertTrue(url.startsWith("https://api.open-meteo.com/v1/gem?"))
-        assertTrue(url.contains("models=gem_seamless"))
+        assertTrue(url.startsWith("https://api.open-meteo.com/v1/forecast?"))
+        assertTrue(url.contains("models=best_match"))
         assertTrue(url.contains("forecast_days=7"))
         assertTrue(url.contains("temperature_unit=fahrenheit"))
         assertTrue(url.contains("wind_speed_unit=mph"))
         assertTrue(url.contains("precipitation_unit=inch"))
+        assertTrue(url.contains("rain,showers"))
+        assertTrue(url.contains("rain_sum,showers_sum"))
     }
 
     private fun assertFails(block: () -> Unit): Exception = try {
@@ -126,6 +146,8 @@ class GemWeatherParserTest {
                 "apparent_temperature":87.1,
                 "is_day":1,
                 "precipitation":0.0,
+                "rain":0.0,
+                "showers":0.0,
                 "weather_code":2
               },
               "hourly":{
@@ -133,6 +155,8 @@ class GemWeatherParserTest {
                 "temperature_2m":[74,84,85,86,87],
                 "precipitation_probability":[10,20,50,80,10],
                 "precipitation":[0,0,0.1,0.2,0],
+                "rain":[0,0,0.08,0.1,0],
+                "showers":[0,0,0.02,0.1,0],
                 "weather_code":[0,2,61,65,1],
                 "wind_speed_10m":[5,8,10,12,14],
                 "wind_direction_10m":[0,90,135,135,180]
@@ -145,6 +169,8 @@ class GemWeatherParserTest {
                 "sunrise":["2026-08-01T06:32","2026-08-02T06:33"],
                 "sunset":["2026-08-01T20:32","2026-08-02T20:31"],
                 "precipitation_sum":[0.68,0.32],
+                "rain_sum":[0.48,0],
+                "showers_sum":[0.2,0],
                 "precipitation_probability_max":[80,70],
                 "wind_speed_10m_max":[15,18],
                 "wind_direction_10m_dominant":[112,90]

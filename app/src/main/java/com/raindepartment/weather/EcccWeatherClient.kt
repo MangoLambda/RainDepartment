@@ -67,7 +67,7 @@ internal class EcccFirstWeatherClient(
             if (supplementalForecast == null) {
                 primaryForecast
             } else {
-                primaryForecast.withGemPrecipitation(supplementalForecast)
+                primaryForecast.withSupplementalPrecipitation(supplementalForecast)
             }
         } else {
             supplementalResult.await().getOrThrow()
@@ -88,7 +88,7 @@ internal class EcccFirstWeatherClient(
 
 private const val GEM_HOURLY_MATCH_TOLERANCE_MILLIS = 45 * 60 * 1_000L
 
-private fun ParsedGemWeather.withGemPrecipitation(
+private fun ParsedGemWeather.withSupplementalPrecipitation(
     supplemental: ParsedGemWeather,
 ): ParsedGemWeather {
     val forecast = forecast
@@ -107,7 +107,11 @@ private fun ParsedGemWeather.withGemPrecipitation(
                 rainfallInches = if (day.rainfallAmountAvailable) {
                     day.rainfallInches
                 } else {
-                    supplementalDay.rainfallInches
+                    supplementalRainfallAmount(
+                        precipitationChance = day.precipitationChance,
+                        precipitationChanceAvailable = day.precipitationChanceAvailable,
+                        supplementalAmount = supplementalDay.rainfallInches,
+                    )
                 },
                 rainfallAmountAvailable = day.rainfallAmountAvailable ||
                     supplementalDay.rainfallAmountAvailable,
@@ -115,31 +119,40 @@ private fun ParsedGemWeather.withGemPrecipitation(
             )
         }
     }
+    val expectedRainDay = daily.firstOrNull()?.takeIf { it.rainfallAmountAvailable }
+    val precipitation24h = hourly
+        .takeIf { rows -> rows.isNotEmpty() && rows.all { it.rainfallAmountAvailable } }
+        ?.filterIndexed { index, _ -> index % 3 == 0 }
+        ?.map { hour -> ChartPoint(hour.time, hour.rainfallInches.toFloat()) }
+        .orEmpty()
+    val rainfallOutlook = daily
+        .takeIf { days -> days.isNotEmpty() && days.all { it.rainfallAmountAvailable } }
+        ?.map { day -> ChartPoint(day.day, day.rainfallInches.toFloat()) }
+        .orEmpty()
 
     return copy(
         forecast = forecast.copy(
             currentPrecipitationInches = supplementalForecast.currentPrecipitationInches,
-            expectedRainInches = if (forecast.expectedRainAmountAvailable) {
-                forecast.expectedRainInches
-            } else {
-                supplementalForecast.expectedRainInches
-            },
-            expectedRainAmountAvailable = forecast.expectedRainAmountAvailable ||
-                supplementalForecast.expectedRainAmountAvailable,
+            expectedRainInches = expectedRainDay?.rainfallInches
+                ?: forecast.expectedRainInches,
+            expectedRainAmountAvailable = expectedRainDay != null ||
+                forecast.expectedRainAmountAvailable,
             hourly = hourly,
-            precipitation24h = if (forecast.precipitation24h.isNotEmpty()) {
-                forecast.precipitation24h
-            } else {
-                supplementalForecast.precipitation24h
-            },
+            precipitation24h = precipitation24h,
             daily = daily,
-            rainfallOutlook = if (forecast.rainfallOutlook.isNotEmpty()) {
-                forecast.rainfallOutlook
-            } else {
-                supplementalForecast.rainfallOutlook
-            },
+            rainfallOutlook = rainfallOutlook,
         ).withAmountBasedRainStart(),
     )
+}
+
+private fun supplementalRainfallAmount(
+    precipitationChance: Int,
+    precipitationChanceAvailable: Boolean,
+    supplementalAmount: Double,
+): Double = if (precipitationChanceAvailable && precipitationChance <= 0) {
+    0.0
+} else {
+    supplementalAmount
 }
 
 private fun DashboardForecast.withAmountBasedRainStart(): DashboardForecast {
@@ -197,7 +210,11 @@ private fun mergeHourlyPrecipitation(
         hour
     } else {
         hour.copy(
-            rainfallInches = match.second.rainfallInches,
+            rainfallInches = supplementalRainfallAmount(
+                precipitationChance = hour.precipitationChance,
+                precipitationChanceAvailable = hour.precipitationChanceAvailable,
+                supplementalAmount = match.second.rainfallInches,
+            ),
             rainfallAmountAvailable = true,
         )
     }

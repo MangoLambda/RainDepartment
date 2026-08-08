@@ -12,7 +12,6 @@ import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -59,27 +58,27 @@ internal class HttpGemWeatherClient : GemWeatherClient {
 }
 
 internal fun gemRequestUrl(location: WeatherLocation): String = buildString {
-    append("https://api.open-meteo.com/v1/gem?")
+    append("https://api.open-meteo.com/v1/forecast?")
     append("latitude=")
     append(String.format(Locale.US, "%.6f", location.latitude))
     append("&longitude=")
     append(String.format(Locale.US, "%.6f", location.longitude))
     append("&current=")
-    append("temperature_2m,apparent_temperature,is_day,precipitation,weather_code,")
+    append("temperature_2m,apparent_temperature,is_day,rain,showers,weather_code,")
     append("wind_speed_10m,wind_direction_10m")
     append("&hourly=")
-    append("temperature_2m,precipitation_probability,precipitation,weather_code,")
+    append("temperature_2m,precipitation_probability,rain,showers,weather_code,")
     append("wind_speed_10m,wind_direction_10m")
     append("&daily=")
     append("weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,")
-    append("precipitation_sum,precipitation_probability_max,wind_speed_10m_max,")
+    append("rain_sum,showers_sum,precipitation_probability_max,wind_speed_10m_max,")
     append("wind_direction_10m_dominant")
     append("&temperature_unit=fahrenheit")
     append("&wind_speed_unit=mph")
     append("&precipitation_unit=inch")
     append("&timezone=auto")
     append("&forecast_days=7")
-    append("&models=gem_seamless")
+    append("&models=best_match")
 }
 
 internal object GemWeatherParser {
@@ -108,7 +107,8 @@ internal object GemWeatherParser {
             .map { parseApiTime(it, zoneId) }
         val hourlyTemperature = hourly.requiredDoubleArray("temperature_2m")
         val hourlyChance = hourly.requiredDoubleArray("precipitation_probability")
-        val hourlyPrecipitation = hourly.requiredDoubleArray("precipitation")
+        val hourlyRain = hourly.requiredDoubleArray("rain")
+        val hourlyShowers = hourly.requiredDoubleArray("showers")
         val hourlyCodes = hourly.requiredDoubleArray("weather_code")
         val hourlyWind = hourly.requiredDoubleArray("wind_speed_10m")
         val hourlyDirections = hourly.requiredDoubleArray("wind_direction_10m")
@@ -116,7 +116,8 @@ internal object GemWeatherParser {
         listOf(
             hourlyTemperature.size,
             hourlyChance.size,
-            hourlyPrecipitation.size,
+            hourlyRain.size,
+            hourlyShowers.size,
             hourlyCodes.size,
             hourlyWind.size,
             hourlyDirections.size,
@@ -130,7 +131,8 @@ internal object GemWeatherParser {
         val dailyLows = daily.requiredDoubleArray("temperature_2m_min")
         val dailySunrise = daily.requiredStringArray("sunrise")
         val dailySunset = daily.requiredStringArray("sunset")
-        val dailyRain = daily.requiredDoubleArray("precipitation_sum")
+        val dailyRain = daily.requiredDoubleArray("rain_sum")
+        val dailyShowers = daily.requiredDoubleArray("showers_sum")
         val dailyChance = daily.requiredDoubleArray("precipitation_probability_max")
         val dailyWind = daily.requiredDoubleArray("wind_speed_10m_max")
         val dailyWindDirections = daily.requiredDoubleArray("wind_direction_10m_dominant")
@@ -142,6 +144,7 @@ internal object GemWeatherParser {
             dailySunrise.size,
             dailySunset.size,
             dailyRain.size,
+            dailyShowers.size,
             dailyChance.size,
             dailyWind.size,
             dailyWindDirections.size,
@@ -152,7 +155,7 @@ internal object GemWeatherParser {
             ForecastHour(
                 time = hourlyTimes[index],
                 precipitationChance = hourlyChance[index].roundToInt().coerceIn(0, 100),
-                precipitationInches = hourlyPrecipitation[index].coerceAtLeast(0.0),
+                precipitationInches = liquidRainfall(hourlyRain[index], hourlyShowers[index]),
                 windMph = hourlyWind[index].coerceAtLeast(0.0),
             )
         }
@@ -161,7 +164,7 @@ internal object GemWeatherParser {
             return HourlyForecast(
                 time = time,
                 precipitationChance = hourlyChance[index].roundToInt().coerceIn(0, 100),
-                rainfallInches = hourlyPrecipitation[index].coerceAtLeast(0.0),
+                rainfallInches = liquidRainfall(hourlyRain[index], hourlyShowers[index]),
                 temperatureFahrenheit = hourlyTemperature[index].roundToInt(),
                 windMph = hourlyWind[index].roundToInt().coerceAtLeast(0),
                 windDirection = compassDirection(hourlyDirections[index]),
@@ -173,9 +176,9 @@ internal object GemWeatherParser {
         }
 
         val currentTime = parseApiTime(current.requiredString("time"), zoneId)
-        val currentIndex = hourlyTimes.indices.minByOrNull { index ->
-            abs(Duration.between(currentTime, hourlyTimes[index]).toMinutes())
-        } ?: 0
+        val currentIndex = hourlyTimes.indexOfLast { !it.isAfter(currentTime) }
+            .takeIf { it >= 0 }
+            ?: 0
 
         val currentCode = current.requiredDouble("weather_code").roundToInt()
         val currentCondition = conditionForCode(currentCode)
@@ -194,12 +197,15 @@ internal object GemWeatherParser {
             hourlyForecast(index, time = if (visibleIndex == 0) "Now" else formatHour(hourlyTimes[index]))
         }
 
-        val currentPrecipitationInches = current.requiredDouble("precipitation").coerceAtLeast(0.0)
+        val currentPrecipitationInches = liquidRainfall(
+            current.requiredDouble("rain"),
+            current.requiredDouble("showers"),
+        )
         val currentPrecipitationChance = hourlyChance[currentIndex].roundToInt().coerceIn(0, 100)
         val rainIndex = hourlyTimes.indices.firstOrNull {
             hourlyTimes[it].isAfter(currentTime) &&
                 hourlyChance[it] > 0.0 &&
-                hasMinimumRainStartAmount(hourlyPrecipitation[it])
+                hasMinimumRainStartAmount(liquidRainfall(hourlyRain[it], hourlyShowers[it]))
         }
         val rainStartsAt = when {
             currentWeatherCondition.isRainBearing() &&
@@ -226,7 +232,7 @@ internal object GemWeatherParser {
                 condition = condition.first,
                 conditionLabel = condition.second,
                 precipitationChance = dailyChance[index].roundToInt().coerceIn(0, 100),
-                rainfallInches = dailyRain[index].coerceAtLeast(0.0),
+                rainfallInches = liquidRainfall(dailyRain[index], dailyShowers[index]),
                 highFahrenheit = dailyHighs[index].roundToInt(),
                 lowFahrenheit = dailyLows[index].roundToInt(),
                 sunrise = parseApiTime(dailySunrise[index], zoneId).format(clockFormatter),
@@ -270,7 +276,7 @@ internal object GemWeatherParser {
                 conditionLabel = currentConditionResult.second,
                 precipitationChance = dailyChance.first().roundToInt().coerceIn(0, 100),
                 currentPrecipitationInches = currentPrecipitationInches,
-                expectedRainInches = dailyRain.first().coerceAtLeast(0.0),
+                expectedRainInches = liquidRainfall(dailyRain.first(), dailyShowers.first()),
                 peakWindMph = dailyWind.first().roundToInt().coerceAtLeast(0),
                 peakWindDirection = peakWindDirection,
                 peakWindTime = peakWindTime,
@@ -294,6 +300,9 @@ internal object GemWeatherParser {
             timezone = timezone,
         )
     }
+
+    private fun liquidRainfall(rain: Double, showers: Double): Double =
+        rain.coerceAtLeast(0.0) + showers.coerceAtLeast(0.0)
 
     private data class ForecastHour(
         val time: ZonedDateTime,
